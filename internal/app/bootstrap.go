@@ -96,6 +96,7 @@ type AppConfig struct {
 	Version                     string
 	MCPReadOnly                 bool
 	MCPEnabled                  bool
+	MCPExecTools                bool   // register exec_pod and run_pod (--mcp-exec-tools)
 	AIHistory                   bool   // persist AI investigations across restarts
 	AIHistoryDBPath             string // "" = ~/.radar/ai-runs.db
 	AuthConfig                  auth.Config
@@ -561,6 +562,7 @@ func CreateServer(cfg AppConfig) *server.Server {
 		// handler records exactly what Radar returned inside those scopes.
 		evidenceRefs := investigationrefs.NewRegistry()
 		serverCfg.InvestigationRefs = evidenceRefs
+		mcppkg.SetExecToolsEnabled(cfg.MCPExecTools && !cfg.DisableExec)
 		if !cfg.MCPReadOnly {
 			serverCfg.MCPHandler = mcppkg.NewHandler()
 		}
