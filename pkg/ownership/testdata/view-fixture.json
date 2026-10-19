@@ -234,6 +234,9 @@
       "children": [
         "ConfigMap alpha/shared",
         "ConfigMap alpha/versioned"
+      ],
+      "childrenCoverage": [
+        "not read: kind_unknown Widget.example.io/"
       ]
     },
     {
@@ -509,6 +512,9 @@
       "children": [
         "ConfigMap alpha/shared",
         "ConfigMap alpha/versioned"
+      ],
+      "childrenCoverage": [
+        "not read: kind_unknown Widget.example.io/"
       ]
     },
     {
