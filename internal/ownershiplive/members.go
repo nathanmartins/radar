@@ -78,9 +78,18 @@ func inClusterServer(server string) bool {
 }
 
 func argoMembership(spec, status map[string]any, scope scopeOf) (ownership.MembershipState, []resourceid.Ref, string) {
-	destination, _ := spec["destination"].(map[string]any)
+	// status.resources describes the destination Argo CD last compared, which
+	// lags a changed spec until it compares again.
+	sync, _ := status["sync"].(map[string]any)
+	compared, _ := sync["comparedTo"].(map[string]any)
+	destination, _ := compared["destination"].(map[string]any)
 	server, _ := destination["server"].(string)
 	name, _ := destination["name"].(string)
+	if strings.TrimSpace(server) == "" && strings.TrimSpace(name) == "" {
+		destination, _ = spec["destination"].(map[string]any)
+		server, _ = destination["server"].(string)
+		name, _ = destination["name"].(string)
+	}
 	namespace, _ := destination["namespace"].(string)
 	server, name = strings.TrimSpace(server), strings.TrimSpace(name)
 	if server == "" && name == "" {
@@ -142,7 +151,8 @@ func fluxMembership(spec, status map[string]any, scope scopeOf) (ownership.Membe
 	for _, item := range list {
 		e, _ := item.(map[string]any)
 		id, _ := e["id"].(string)
-		// namespace_name_group_kind; only a name can hold an underscore.
+		// namespace_name_group_kind; only a name can hold an underscore, and
+		// Flux writes a colon in a name as two.
 		parts := strings.Split(id, "_")
 		n := len(parts)
 		if n < 4 || parts[n-1] == "" || strings.Join(parts[1:n-2], "_") == "" {
@@ -152,7 +162,8 @@ func fluxMembership(spec, status map[string]any, scope scopeOf) (ownership.Membe
 		if group == "core" {
 			group = ""
 		}
-		ref := resourceid.Ref{Group: group, Kind: parts[n-1], Namespace: parts[0], Name: strings.Join(parts[1:n-2], "_")}
+		name := strings.ReplaceAll(strings.Join(parts[1:n-2], "_"), "__", ":")
+		ref := resourceid.Ref{Group: group, Kind: parts[n-1], Namespace: parts[0], Name: name}
 		members = append(members, aligned(ref, scope))
 	}
 	return state, sortedRefs(members), ""

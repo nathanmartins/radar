@@ -42,7 +42,9 @@ type CandidateRead struct {
 	// no Kind stands for kinds discovery didn't list (read_error), or for an
 	// empty namespace the domain named (namespace_required), which is never
 	// taken to mean all namespaces. One with no Namespace on a namespaced kind
-	// stands for namespaces of that kind Radar doesn't collect.
+	// is that kind everywhere the search looked, or, with
+	// radar_namespace_not_collected, the namespaces of that kind Radar doesn't
+	// collect.
 	Gaps []Gap
 	// Truncated: the search stopped at its limit, so more may exist.
 	Truncated bool

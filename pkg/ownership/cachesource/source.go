@@ -48,7 +48,9 @@ func New(current func() Caches) *Source {
 	return &Source{current: current}
 }
 
-// Begin opens a session over the current caches.
+// Begin opens a session over the current caches. Open one per request, not
+// one per item: a session's first read of a custom kind lists every dynamic
+// watch, which costs milliseconds with thousands of watched namespaces.
 func (s *Source) Begin() (ownership.Session, error) {
 	caches := s.current()
 	if caches.Typed == nil || caches.retired() {
@@ -190,12 +192,31 @@ func (s *session) dynamicObject(ref resourceid.Ref, borrow func(*unstructured.Un
 		}
 	}
 	if !answered {
-		return unavailable(ref, dynamicReason(s.caches.Dynamic.NamespaceObservation(versions[0], ref.Namespace)))
+		return unavailable(ref, s.unansweredReason(versions, ref.Namespace))
 	}
 	if borrow != nil && answer.State == ownership.Present {
 		borrow(answeredFrom)
 	}
 	return answer
+}
+
+// unansweredReason says why none of versions answered in namespace. A version
+// watched there explains it better than one watched only elsewhere: once it
+// loads, a retry gets the answer.
+func (s *session) unansweredReason(versions []schema.GroupVersionResource, namespace string) readreason.Code {
+	var serving, rest []readreason.Code
+	for _, gvr := range versions {
+		o := s.caches.Dynamic.NamespaceObservation(gvr, namespace)
+		if o.State == k8score.DynamicObservationUnwatched {
+			rest = append(rest, dynamicReason(o))
+		} else {
+			serving = append(serving, dynamicReason(o))
+		}
+	}
+	if len(serving) > 0 {
+		return readreason.Primary(serving)
+	}
+	return readreason.Primary(rest)
 }
 
 // servingVersions returns the versions the session reads kind's resource at,

@@ -425,6 +425,29 @@ func TestObjectIsUnavailableWhileItsStoreLoads(t *testing.T) {
 	}
 }
 
+// A typed kind whose load missed its deadline may still finish, but repeating
+// the read doesn't restart it.
+func TestObjectOfATypedKindPastItsLoadDeadline(t *testing.T) {
+	f := newFixture(t, k8score.CacheConfig{
+		ResourceTypes:       map[string]bool{k8score.Pods: true, k8score.Secrets: true},
+		DeferredTypes:       map[string]bool{k8score.Secrets: true},
+		DeferredSyncTimeout: 50 * time.Millisecond,
+	}, func(f *fixture) {
+		f.typed.PrependReactor("list", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("initial list held")
+		})
+	})
+	waitUntil(t, "the Secrets load deadline", func() bool {
+		return f.caches.Typed.KindReadinessFor(k8score.Secrets) == k8score.KindFailed
+	})
+	r := ref("", "Secret", "alpha", "s")
+	got := begin(t, f.source()).Object(r)
+	want := ownership.Gap{Kind: r.GroupKind(), Namespace: "alpha", Reason: readreason.KindSyncTimedOut}
+	if got.State != ownership.Unavailable || got.Gap != want {
+		t.Fatalf("%v past its load deadline = %v %+v; want unavailable %+v", r, got.State, got.Gap, want)
+	}
+}
+
 func TestObjectOutsideTheCollectedNamespacesIsUnavailable(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{
 		ResourceScopes: map[string]k8score.ResourceScope{k8score.Pods: {Enabled: true, Namespace: "alpha"}},
@@ -810,6 +833,41 @@ func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 				t.Fatalf("Widget = %v at %q %+v; want %v at %q reason %q", got.State, got.Object.APIVersion, got.Gap, tc.want, tc.wantVersion, tc.wantReason)
 			}
 		})
+	}
+}
+
+// When no watched version answers, a version watched where the read is says
+// why: v1 watched only in alpha says nothing about beta, while v1beta1's
+// cluster-wide watch is loading and a retry gets its answer.
+func TestObjectNoVersionAnsweredSaysWhyFromTheVersionWatchingIt(t *testing.T) {
+	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
+	var betaLists atomic.Int32
+	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"})
+		f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			switch {
+			case a.GetResource().Version == "v1" && a.GetNamespace() == "":
+				return true, nil, apierrors.NewForbidden(widgets.GroupResource(), "", errors.New("cluster-wide list denied"))
+			case a.GetResource().Version == "v1beta1" && betaLists.Add(1) > 1:
+				// The first list is the watch's access probe.
+				return true, nil, errors.New("initial list held")
+			}
+			return false, nil, nil
+		})
+	})
+	if _, err := f.caches.Dynamic.List(widgets, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "alpha's v1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(widgets, "alpha") })
+	if err := f.caches.Dynamic.EnsureWatching(beta); err != nil {
+		t.Fatal(err)
+	}
+	r := ref("example.io", "Widget", "beta", "w1")
+	got := begin(t, f.source()).Object(r)
+	want := ownership.Gap{Kind: r.GroupKind(), Namespace: "beta", Reason: readreason.KindSyncPending}
+	if got.State != ownership.Unavailable || got.Gap != want {
+		t.Fatalf("%v = %v %+v; want unavailable %+v", r, got.State, got.Gap, want)
 	}
 }
 

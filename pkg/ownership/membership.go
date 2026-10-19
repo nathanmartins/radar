@@ -77,7 +77,10 @@ type RecorderRead struct {
 	Gaps []Gap
 }
 
-// Complete reports whether Recorders are every manager recording the object.
+// Complete reports whether Recorders are every manager recording the object
+// among those whose status this cluster stores. A manager running elsewhere,
+// such as a hub's Argo CD or a management cluster's Flux, is invisible here:
+// an object with no recorders may still be managed by GitOps.
 func (r RecorderRead) Complete() bool {
 	return len(r.Gaps) == 0 && len(r.Elsewhere) == 0 && len(r.Unreadable) == 0
 }

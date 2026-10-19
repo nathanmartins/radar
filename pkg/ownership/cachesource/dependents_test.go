@@ -3,7 +3,9 @@ package cachesource
 import (
 	"errors"
 	"fmt"
+	goruntime "runtime"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -357,5 +359,93 @@ func TestOwnerCandidatesFromPagedInformers(t *testing.T) {
 	if !slices.Contains(candidateRefs(got), ref("apps", "ReplicaSet", "alpha", "web-1")) ||
 		slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"} }) {
 		t.Fatalf("dependents through a paged ReplicaSet informer = %+v", got)
+	}
+}
+
+// A cluster-wide store serves every namespace, so a search of many namespaces
+// reads it once: the work follows the owner's dependents plus the namespaces
+// asked about, not their product, and the session records the one store.
+func TestOwnerCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
+	search := func(n int) (stores int, bytes uint64) {
+		var namespaces []string
+		f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+			for i := range n {
+				ns := fmt.Sprintf("ns-%04d", i)
+				u := widget(ns, "w", "uid-w-"+ns)
+				u.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "v1", Kind: "Node", Name: "n1", UID: "uid-node"}})
+				if err := f.dynamic.Tracker().Add(u); err != nil {
+					t.Fatal(err)
+				}
+				namespaces = append(namespaces, ns)
+			}
+		})
+		f.watch(t, widgets)
+		s := begin(t, f.source())
+		domain := ownership.Domain{Namespaces: namespaces}
+		if got := s.OwnerCandidates("uid-node", domain, 0); len(got.Candidates) != n {
+			t.Fatalf("%d namespaces: %d candidates, want one Widget in each", n, len(got.Candidates))
+		}
+		var before, after goruntime.MemStats
+		goruntime.ReadMemStats(&before)
+		for range 3 {
+			s.OwnerCandidates("uid-node", domain, 0)
+		}
+		goruntime.ReadMemStats(&after)
+		return len(s.(*session).served), (after.TotalAlloc - before.TotalAlloc) / 3
+	}
+	smallStores, small := search(100)
+	largeStores, large := search(800)
+	if largeStores != smallStores {
+		t.Fatalf("the session recorded %d stores for 800 namespaces and %d for 100; one cluster-wide store served them all", largeStores, smallStores)
+	}
+	// Eight times the namespaces and dependents allocates eight times as much
+	// when each store is read once; read per namespace, it grows with their
+	// product.
+	if large > 16*small {
+		t.Fatalf("a search of 800 namespaces allocated %d bytes, %.0fx a search of 100 (%d)", large, float64(large)/float64(small), small)
+	}
+}
+
+// With one version watched only in alpha and another watched cluster-wide but
+// still loading, alpha is read through the first, and the rest of the
+// namespaces are loading, not outside what Radar collects.
+func TestOwnerCandidatesSayTheRestLoadsWhileAClusterWideVersionLoads(t *testing.T) {
+	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
+	var held atomic.Int32
+	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
+			betaWidget(widget("alpha", "w1", "uid-widget")))
+		f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			switch {
+			case a.GetResource().Version == "v1" && held.Add(1) > 1:
+				// The first list is the watch's access probe.
+				return true, nil, errors.New("initial list held")
+			case a.GetResource().Version == "v1beta1" && a.GetNamespace() == "":
+				return true, nil, apierrors.NewForbidden(beta.GroupResource(), "", errors.New("namespaces only"))
+			}
+			return false, nil, nil
+		})
+	})
+	if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "v1beta1 in alpha", func() bool { return f.caches.Dynamic.IsNamespaceSynced(beta, "alpha") })
+	if err := f.caches.Dynamic.EnsureWatching(widgets); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "v1's held list", func() bool { return held.Load() > 1 })
+	got := begin(t, f.source()).OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	var widgetGaps []ownership.Gap
+	for _, g := range got.Gaps {
+		if g.Kind == widgetKind {
+			widgetGaps = append(widgetGaps, g)
+		}
+	}
+	if want := []ownership.Gap{{Kind: widgetKind, Reason: readreason.KindSyncPending}}; !slices.Equal(widgetGaps, want) {
+		t.Fatalf("Widget gaps = %+v; want %+v", widgetGaps, want)
+	}
+	if !slices.Contains(candidateRefs(got), ref("example.io", "Widget", "alpha", "w1")) {
+		t.Fatalf("alpha's Widget, through its loaded namespace watch, is missing: %+v", got)
 	}
 }

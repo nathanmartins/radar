@@ -101,6 +101,14 @@ func TestLiveMembershipReadsControllerShapes(t *testing.T) {
 			map[string]any{"kind": "Service", "name": "ui", "namespace": "shop"},
 		}}, ownership.MembersRemote, []resourceid.Ref{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
 		{"Argo CD, elsewhere, not reconciled", ownership.ArgoApplication, map[string]any{"destination": map[string]any{"name": "prod"}}, nil, ownership.MembersUnreadable, nil},
+		{"Argo CD, moved here but compared elsewhere", ownership.ArgoApplication, local, map[string]any{
+			"sync":      map[string]any{"comparedTo": map[string]any{"destination": map[string]any{"name": "prod", "namespace": "shop"}}},
+			"resources": []any{map[string]any{"kind": "Service", "name": "ui", "namespace": "shop"}},
+		}, ownership.MembersRemote, []resourceid.Ref{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
+		{"Argo CD, moved elsewhere but compared here", ownership.ArgoApplication, map[string]any{"destination": map[string]any{"name": "prod"}}, map[string]any{
+			"sync":      map[string]any{"comparedTo": map[string]any{"destination": map[string]any{"server": "https://kubernetes.default.svc", "namespace": "shop"}}},
+			"resources": []any{map[string]any{"kind": "Service", "name": "ui"}},
+		}, ownership.MembersRecorded, []resourceid.Ref{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
 		{"Flux", ownership.FluxKustomization, nil, map[string]any{"inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_ui__Service"},
 			map[string]any{"id": "shop_reader_rbac.authorization.k8s.io_ClusterRole"},
@@ -117,6 +125,9 @@ func TestLiveMembershipReadsControllerShapes(t *testing.T) {
 		{"Flux, the core group spelled out", ownership.FluxKustomization, nil, map[string]any{"inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_ui_core_Service"},
 		}}}, ownership.MembersRecorded, []resourceid.Ref{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
+		{"Flux, a colon in an RBAC name", ownership.FluxHelmRelease, nil, map[string]any{"inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "_system__metrics-server_rbac.authorization.k8s.io_ClusterRole"},
+		}}}, ownership.MembersRecorded, []resourceid.Ref{{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "system:metrics-server"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			u := &unstructured.Unstructured{Object: map[string]any{}}

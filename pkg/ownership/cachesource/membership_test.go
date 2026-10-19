@@ -32,7 +32,7 @@ func manager(gk resourceid.GroupKind, spec, status map[string]any) *unstructured
 
 var localDestination = map[string]any{"destination": map[string]any{"namespace": "shop", "server": "https://kubernetes.default.svc"}}
 
-// The status shapes Argo CD 3 and Flux 2.7 controllers write, read entry by
+// The status shapes Argo CD 3 and Flux 2.8 controllers write, read entry by
 // entry; a list Radar can't trust in full is unreadable as a whole.
 func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 	app, ks, hr := ownership.ArgoApplication, ownership.FluxKustomization, ownership.FluxHelmRelease
@@ -68,6 +68,10 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 		{"a HelmRelease's inventory", manager(hr, map[string]any{"releaseName": "web"}, map[string]any{"inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_web-podinfo__Service", "v": "v1"},
 		}}}), ownership.MembersRecorded, []memberEntry{{"", "Service", "shop", "web-podinfo"}}},
+		{"RBAC names with colons, as Flux writes them", manager(hr, map[string]any{"releaseName": "metrics-server"}, map[string]any{"inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "_system__metrics-server_rbac.authorization.k8s.io_ClusterRole", "v": "v1"},
+			map[string]any{"id": "kube-system_metrics-server__system__auth-delegator_rbac.authorization.k8s.io_RoleBinding", "v": "v1"},
+		}}}), ownership.MembersRecorded, []memberEntry{{"rbac.authorization.k8s.io", "ClusterRole", "", "system:metrics-server"}, {"rbac.authorization.k8s.io", "RoleBinding", "kube-system", "metrics-server:system:auth-delegator"}}},
 		{"an empty inventory", manager(ks, nil, map[string]any{"inventory": map[string]any{"entries": []any{}}}), ownership.MembersRecorded, nil},
 		{"an inventory without entries", manager(ks, nil, map[string]any{"inventory": map[string]any{}}), ownership.MembersRecorded, nil},
 		{"a HelmRelease from a controller that records no inventory", manager(hr, map[string]any{"releaseName": "web"}, map[string]any{"observedGeneration": int64(2)}), ownership.MembersUnreadable, nil},
@@ -253,6 +257,30 @@ func TestRecordersAreCompleteOnlyWithoutDoubt(t *testing.T) {
 	}
 }
 
+// Flux writes a colon in an RBAC object's name as a double underscore; its
+// entry still names the object the API does, which a chart's ClusterRoles
+// such as system:metrics-server need to be found at all.
+func TestMembersOfRBACNamesWithColons(t *testing.T) {
+	role := resourceid.Ref{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "system:metrics-server"}
+	release := ownershiptest.Object{
+		Ref:        resourceid.Ref{Group: ownership.FluxHelmRelease.Group, Kind: ownership.FluxHelmRelease.Kind, Namespace: "kube-system", Name: "metrics-server"},
+		APIVersion: "helm.toolkit.fluxcd.io/v2", UID: "uid-metrics-server", ResourceVersion: "1",
+		Membership: ownership.MembersRecorded, Members: []resourceid.Ref{role},
+	}
+	w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}, Objects: []ownershiptest.Object{release}}
+	for _, k := range ownershiptest.Kinds {
+		w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
+	}
+	s := begin(t, render(t, w).source())
+	if got := s.Inventory(release.Ref); !slices.Equal(got.Members, []resourceid.Ref{role}) {
+		t.Fatalf("Inventory = %v, want %v", got.Members, role)
+	}
+	got := s.Recorders(role)
+	if len(got.Recorders) != 1 || got.Recorders[0].Ref != release.Ref || !got.Complete() {
+		t.Fatalf("Recorders(%v) = %+v, want %v alone", role, got, release.Ref)
+	}
+}
+
 // A manager that changes while Recorders reads the index is in at least one
 // of its lists, so an answer that leaves it out never claims to be complete.
 func TestRecordersNeverMissAManagerChangingMidSearch(t *testing.T) {
@@ -266,6 +294,9 @@ func TestRecordersNeverMissAManagerChangingMidSearch(t *testing.T) {
 			Membership: state, Members: members, Destination: "alpha",
 		}
 	}
+	// The fake API numbers its lists apart from the versions objects carry;
+	// these stay above its list versions, as an API server's writes always
+	// move past its lists.
 	for _, tc := range []struct {
 		name          string
 		ref           resourceid.Ref
@@ -274,13 +305,13 @@ func TestRecordersNeverMissAManagerChangingMidSearch(t *testing.T) {
 		filed string
 	}{
 		{"an unreadable list comes to name the object", cfg,
-			app(ownership.MembersUnreadable, "1"), app(ownership.MembersRecorded, "2", cfg),
+			app(ownership.MembersUnreadable, "10"), app(ownership.MembersRecorded, "11", cfg),
 			memberKey(meant, "", "ConfigMap", "alpha", "cfg")},
 		// The renderer writes the second entry in the destination namespace
 		// without its namespace, as Argo CD may, and the first with it; each
 		// is filed under its own reading.
 		{"the object's entry comes to record its namespace", w1,
-			app(ownership.MembersRecorded, "1", other, w1), app(ownership.MembersRecorded, "2", w1, other),
+			app(ownership.MembersRecorded, "10", other, w1), app(ownership.MembersRecorded, "11", w1, other),
 			memberKey(asRecorded, "example.io", "Widget", "alpha", "w1")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

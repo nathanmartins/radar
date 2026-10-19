@@ -271,6 +271,47 @@ func TestDynamicIndexersAreInstalledBeforeStart(t *testing.T) {
 	}
 }
 
+// A resource's store version stays put while nothing changes and moves with
+// each change its stores apply, including one a later namespace watch makes.
+func TestDynamicStoreVersionMovesWithEachStoreChange(t *testing.T) {
+	gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "widgets"}
+	widget := func(name, rv string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "example.io/v1", "kind": "Widget",
+			"metadata": map[string]any{"name": name, "namespace": "alpha", "resourceVersion": rv},
+		}}
+	}
+	dyn := newWidgetDynamicClient(widget("a", "10"))
+	d, err := NewDynamicResourceCache(DynamicCacheConfig{DynamicClient: dyn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	if v, ok := d.StoreVersion(gvr.GroupResource()); !ok || len(v.stores) != 0 {
+		t.Fatalf("with no informer, StoreVersion = %+v, %v; want nothing to compare", v, ok)
+	}
+	if err := d.startWatching(gvr, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "alpha's informer", func() bool { return d.IsNamespaceSynced(gvr, "alpha") })
+	listed, ok := d.StoreVersion(gvr.GroupResource())
+	if again, _ := d.StoreVersion(gvr.GroupResource()); !ok || len(listed.stores) != 1 || !again.Equal(listed) {
+		t.Fatalf("an unchanged store's version = %+v then %+v, %v", listed, again, ok)
+	}
+	if _, err := dyn.Resource(gvr).Namespace("alpha").Update(context.Background(), widget("a", "11"), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the update's version", func() bool { v, _ := d.StoreVersion(gvr.GroupResource()); return !v.Equal(listed) })
+	updated, _ := d.StoreVersion(gvr.GroupResource())
+	if err := d.startWatching(gvr, ""); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the cluster-wide informer", func() bool { return d.IsClusterWideSynced(gvr) })
+	if v, ok := d.StoreVersion(gvr.GroupResource()); !ok || v.Equal(updated) {
+		t.Fatalf("a store replaced by a cluster-wide one kept version %+v, %v", v, ok)
+	}
+}
+
 // The lookup itself refuses a store that hasn't loaded, for callers that
 // didn't assess the kind first.
 func TestTypedReadableDependentsRefusesAnUnloadedStore(t *testing.T) {
