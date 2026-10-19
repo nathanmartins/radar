@@ -59,7 +59,7 @@ func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.Sessi
 
 // viewsAlike checks that a View gives every answer about every object in w
 // alike over both sessions, for a caller who may read everything and for one
-// who may read less.
+// who may read less, and that a quiet cache's view holds.
 func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session) {
 	t.Helper()
 	for _, caller := range []ownership.Access{ownership.Unrestricted(), alphaOnly{}} {
@@ -68,6 +68,9 @@ func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session
 			if x, y := fmt.Sprint(viewAnswers(a, o.Ref)), fmt.Sprint(viewAnswers(b, o.Ref)); x != y {
 				t.Errorf("%v for %T:\n scan  %s\n cache %s", o.Ref, caller, x, y)
 			}
+		}
+		if err := b.Validate(); err != nil {
+			t.Errorf("a quiet cache's view for %T failed Validate: %v", caller, err)
 		}
 	}
 }

@@ -21,12 +21,15 @@ import (
 // should have found it means the cluster changed in a way one capture can't
 // reconcile, and Validate says so. It never reads an object the caller may
 // not read, and says nothing of whether there is one. Its answers hold only
-// if Validate passes once they are built. A View is not safe for concurrent
-// use.
+// if Validate passes once they are built. They share the view's captures, so
+// they must not be modified. A View is not safe for concurrent use.
 type View struct {
-	session     Session
-	access      Access
-	reads       map[resourceid.Ref]accessRead
+	session Session
+	access  Access
+	reads   map[resourceid.Ref]accessRead
+	// named holds the objects the view captured under each UID their owner
+	// references name.
+	named       map[types.UID][]resourceid.Ref
 	searches    map[resourceid.Ref]CandidateRead
 	searched    map[types.UID]searchScope
 	inventories map[resourceid.Ref]InventoryRead
@@ -51,6 +54,7 @@ func NewView(s Session, access Access) *View {
 		session:     s,
 		access:      access,
 		reads:       map[resourceid.Ref]accessRead{},
+		named:       map[types.UID][]resourceid.Ref{},
 		searches:    map[resourceid.Ref]CandidateRead{},
 		searched:    map[types.UID]searchScope{},
 		inventories: map[resourceid.Ref]InventoryRead{},
@@ -82,43 +86,62 @@ func (v *View) read(ref resourceid.Ref) (ObjectRead, Decision) {
 	if r.may == Allowed {
 		r.read = v.session.Object(ref)
 		if r.read.State == Present {
-			v.captured(r.read.Object)
+			v.captured(r.read.Object, true)
 		}
 	}
 	v.reads[ref] = r
 	return r.read, r.may
 }
 
-// captured checks an object the view has just captured against the owners
-// whose children it already answered for. An answer counts only objects the
-// view had captured, so one it names, whose answer covered its kind and
-// place, was answered for before the object named it.
-func (v *View) captured(o Observation) {
-	for _, r := range o.OwnerReferences {
+// captured records an object the view has just captured under the UIDs it
+// names, and checks it against the owners whose children it already answered
+// for. An answer counts only objects the view had captured, so one it names,
+// whose answer covered its kind and place, was answered for before the object
+// named it. collected says the session holds o's kind in o's namespace.
+func (v *View) captured(o Observation, collected bool) {
+	for i, r := range o.OwnerReferences {
+		if slices.ContainsFunc(o.OwnerReferences[:i], func(p metav1.OwnerReference) bool { return p.UID == r.UID }) {
+			continue
+		}
+		v.named[r.UID] = append(v.named[r.UID], o.Ref)
 		s, ok := v.searched[r.UID]
 		if !ok || !v.searchedIn(o.Ref, s.domain) {
 			continue
 		}
-		if slices.ContainsFunc(s.gaps, func(g Gap) bool {
-			return g.Kind == o.Ref.GroupKind() && (g.Namespace == "" || g.Namespace == o.Ref.Namespace)
-		}) {
+		if slices.ContainsFunc(s.gaps, func(g Gap) bool { return covers(g, o.Ref, collected) }) {
 			continue
 		}
 		v.changed = true
 	}
 }
 
+// covers reports whether a search's gap left ref's kind and place unread. A
+// gap across all namespaces that stands for the namespaces Radar doesn't
+// collect leaves the ones it does collect read.
+func covers(g Gap, ref resourceid.Ref, collected bool) bool {
+	switch {
+	case g.Kind != ref.GroupKind():
+		return false
+	case g.Namespace == ref.Namespace:
+		return true
+	case g.Namespace != "":
+		return false
+	}
+	return !collected || g.Reason != readreason.RadarNamespaceNotCollected
+}
+
 // Seed reads o as its object when the session can't, as when the caller
 // fetched it from the API and Radar doesn't collect its kind. A read that
 // holds the object stands, as does an excluded one or one the caller may not
 // make. Seed an object before asking about it: replacing a read an earlier
-// answer used makes Validate fail.
+// answer used makes Validate fail. The view keeps o, which must not be
+// modified afterwards.
 func (v *View) Seed(o Observation) {
 	_, answered := v.reads[o.Ref]
 	if read, may := v.read(o.Ref); may == Allowed && (read.State == Unavailable || read.State == Absent) {
 		v.reads[o.Ref] = accessRead{read: ObjectRead{State: Present, Object: o}, may: Allowed}
 		v.changed = v.changed || answered
-		v.captured(o)
+		v.captured(o, read.State == Absent)
 	}
 }
 
@@ -222,9 +245,11 @@ type ChildrenAnswer struct {
 	Narrowed bool
 }
 
-// Complete reports whether Children are every child the caller may read.
+// Complete reports whether Children are every child the caller may read. An
+// answer about an object the caller didn't read lists none and is never
+// complete.
 func (a ChildrenAnswer) Complete() bool {
-	return len(a.Gaps) == 0 && !a.Truncated
+	return a.Subject.Present() && len(a.Gaps) == 0 && !a.Truncated
 }
 
 // Children finds the objects with an owner reference that resolves to ref's
@@ -252,7 +277,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 		found = v.session.OwnerCandidates(owner.UID, domain, 0)
 		v.searches[ref] = found
 	}
-	candidates, undecided := v.candidates(found, owner.UID, domain)
+	candidates, unread, undecided := v.candidates(found, owner.UID, domain)
 	// Saying a check failed would say a child may be there.
 	a.Narrowed = a.Narrowed || undecided
 	for _, c := range candidates {
@@ -280,46 +305,50 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			a.Gaps = append(a.Gaps, g)
 		}
 	}
+	if len(unread) > 0 {
+		// The caller may read these: the view read them for it.
+		a.Gaps = append(a.Gaps, unread...)
+		slices.SortFunc(a.Gaps, compareGaps)
+		a.Gaps = slices.Compact(a.Gaps)
+	}
 	if !searched {
 		v.searched[owner.UID] = searchScope{domain: domain, gaps: a.Gaps}
 	}
 	return a
 }
 
-// candidates are the objects the caller may read that may name uid in
-// domain, each as the view captured it: an object it already read answers as
-// it was read, whatever the search found since, and one the search found is
+// candidates are the objects the caller may read that name uid in domain,
+// each as the view captured it: an object it already read answers as it was
+// read, whatever the search found since, and one the search found is
 // captured as found. Captured objects that still name uid are kept even if
 // the search no longer finds them, so every answer reflects one capture of
-// each object. undecided reports a candidate whose access check failed.
-func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (out []Observation, undecided bool) {
-	seen := map[resourceid.Ref]bool{}
+// each object. unread are the gaps of found objects the view read before it
+// could tell whether they exist: the search says they name uid, so leaving
+// them out says nothing of whether they are children. undecided reports a
+// candidate whose access check failed.
+func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (out []Observation, unread []Gap, undecided bool) {
 	for _, c := range found.Candidates {
-		seen[c.Ref] = true
 		r, read := v.reads[c.Ref]
 		if !read {
 			r = accessRead{may: v.access.Read(c.Ref.GroupKind(), c.Ref.Namespace)}
 			if r.may == Allowed {
 				r.read = ObjectRead{State: Present, Object: c}
-				v.captured(c)
+				v.captured(c, true)
 			}
 			v.reads[c.Ref] = r
 		}
 		undecided = undecided || r.may == Undecided
-		if r.may == Allowed && r.read.State == Present {
-			out = append(out, r.read.Object)
+		if r.may == Allowed && r.read.State == Unavailable {
+			unread = append(unread, r.read.Gap)
 		}
 	}
-	for ref, r := range v.reads {
-		if seen[ref] || r.may != Allowed || r.read.State != Present || !v.searchedIn(ref, domain) {
-			continue
-		}
-		if slices.ContainsFunc(r.read.Object.OwnerReferences, func(o metav1.OwnerReference) bool { return o.UID == uid }) {
-			out = append(out, r.read.Object)
+	for _, ref := range v.named[uid] {
+		if v.searchedIn(ref, domain) {
+			out = append(out, v.reads[ref].read.Object)
 		}
 	}
 	slices.SortFunc(out, func(a, b Observation) int { return compareRefs(a.Ref, b.Ref) })
-	return out, undecided
+	return out, unread, undecided
 }
 
 // searchedIn reports whether a dependents search of domain covers ref's kind

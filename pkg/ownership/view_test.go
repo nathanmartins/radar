@@ -104,8 +104,12 @@ func TestViewSaysNothingOfAnObjectTheCallerMayNotRead(t *testing.T) {
 	if got := v.Owner(pod); got.Subject.Access != ownership.Denied || got.Subject.Read.State != ownership.Unavailable || got.Subject.Read.Object.UID != "" || got.Index != -1 {
 		t.Fatalf("Owner of a Pod the caller may not read = %+v", got)
 	}
-	if got := v.Children(pod, 0); got.Subject.Present() || got.Children != nil || got.Gaps != nil {
-		t.Fatalf("Children = %+v", got)
+	if got := v.Children(pod, 0); got.Subject.Present() || got.Children != nil || got.Gaps != nil || got.Complete() {
+		t.Fatalf("Children = %+v complete=%v", got, got.Complete())
+	}
+	unsure := view(t, ownershiptest.Fixture(), access{undecided: []resourceid.GroupKind{pods}})
+	if got := unsure.Children(pod, 0); got.Subject.Present() || got.Complete() {
+		t.Fatalf("Children when the caller's access couldn't be checked = %+v complete=%v", got, got.Complete())
 	}
 	if got := v.ControllerRoot(pod); got.Subject.Present() || got.Root != pod || got.Stop != nil {
 		t.Fatalf("ControllerRoot = %+v", got)
@@ -334,6 +338,11 @@ func TestViewMembers(t *testing.T) {
 	alpha := view(t, w, access{namespaces: []string{"alpha", "argocd"}}).Members(app("web"))
 	if slices.Contains(refs(alpha), at("example.io", "Gadget", "beta", "g1")) || alpha.Withheld != 1 || len(alpha.Members) != len(want)-1 {
 		t.Fatalf("members a caller in alpha sees = %v withheld %d", refs(alpha), alpha.Withheld)
+	}
+	unsure := view(t, w, access{undecided: []resourceid.GroupKind{configMaps}}).Members(app("web"))
+	checkFailed := ownership.Gap{Kind: configMaps, Namespace: "alpha", Reason: readreason.UserPermissionCheckFailed}
+	if slices.Contains(refs(unsure), at("", "ConfigMap", "alpha", "cfg")) || unsure.Unknown != 2 || unsure.Withheld != 0 || !slices.Equal(unsure.Gaps, []ownership.Gap{checkFailed, unserved}) {
+		t.Fatalf("members when the caller's ConfigMap access couldn't be checked = %v unknown %d withheld %d gaps %+v", refs(unsure), unsure.Unknown, unsure.Withheld, unsure.Gaps)
 	}
 	for name, state := range map[string]ownership.MembershipState{"elsewhere": ownership.MembersRemote, "new": ownership.MembersUnreadable, "empty-list": ownership.MembersRecorded} {
 		if got := view(t, w, ownership.Unrestricted()).Members(app(name)); got.Membership != state || len(got.Members) != 0 || got.Missing+got.Withheld+got.Unknown != 0 {
