@@ -358,6 +358,7 @@ func (s scanSession) nameable(ref resourceid.Ref) readreason.Code {
 func (s scanSession) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 	var r ownership.RecorderRead
 	if reason := s.nameable(ref); reason != "" {
+		r.Unnamed = true
 		r.Gaps = []ownership.Gap{{Kind: ref.GroupKind(), Namespace: ref.Namespace, Reason: reason}}
 		return r
 	}

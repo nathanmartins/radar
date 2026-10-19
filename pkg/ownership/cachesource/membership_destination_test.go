@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/skyhook-io/radar/pkg/gitops"
 	"github.com/skyhook-io/radar/pkg/ownership"
 )
 
@@ -30,8 +31,8 @@ func TestMembersFollowTheComparedDestination(t *testing.T) {
 				"resources":    []any{map[string]any{"kind": "Service", "name": "ui", "namespace": "shop", "version": "v1"}},
 			})
 			got := membersOf(ownership.ArgoApplication, app)
-			if got.state != tc.state || !slices.Equal(got.entries, []memberEntry{{"", "Service", "shop", "ui"}}) {
-				t.Fatalf("got %v %v, want %v", got.state, got.entries, tc.state)
+			if got.state != tc.state || !slices.Equal(got.Entries, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "ui"}}) {
+				t.Fatalf("got %v %v, want %v", got.state, got.Entries, tc.state)
 			}
 			if here := appliesHere(ownership.ArgoApplication, app); here != (tc.state == ownership.MembersRecorded) {
 				t.Fatalf("appliesHere = %v, want %v", here, !here)

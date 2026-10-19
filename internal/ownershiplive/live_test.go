@@ -83,7 +83,7 @@ func TestLiveParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer typedCache.Stop()
-	dynamicCache, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{DynamicClient: dyn, Discovery: discovery, Indexers: cachesource.MembershipIndexers()})
+	dynamicCache, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{DynamicClient: dyn, Discovery: discovery})
 	if err != nil {
 		t.Fatal(err)
 	}

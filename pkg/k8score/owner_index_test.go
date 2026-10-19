@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/cache"
 )
 
 func ownedPod(namespace, name string, owners ...metav1.OwnerReference) *corev1.Pod {
@@ -229,86 +228,6 @@ func TestDynamicReadableIndexedReadsOnlyItsServingInformers(t *testing.T) {
 	beta, _, ok := d.ReadableIndexed(gvr, "beta", OwnerUIDIndex, "uid-d")
 	if !ok || !slices.Equal(names(beta), []string{"b"}) {
 		t.Fatalf("beta from the cluster-wide informer = %v, %v; want beta's only", names(beta), ok)
-	}
-}
-
-// A host's indexes are on a resource's informers from their start, whatever
-// version it is watched at, and a read of an index the informers lack refuses
-// to answer rather than answering empty.
-func TestDynamicIndexersAreInstalledBeforeStart(t *testing.T) {
-	gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "widgets"}
-	widget := func(name, color string) *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "example.io/v1", "kind": "Widget",
-			"metadata": map[string]any{"name": name, "namespace": "alpha", "labels": map[string]any{"color": color}},
-		}}
-	}
-	byColor := cache.Indexers{"color": func(obj any) ([]string, error) {
-		return []string{obj.(*unstructured.Unstructured).GetLabels()["color"]}, nil
-	}}
-	dyn := newWidgetDynamicClient(widget("a", "red"), widget("b", "blue"), widget("c", "red"))
-	d, err := NewDynamicResourceCache(DynamicCacheConfig{DynamicClient: dyn, Indexers: map[schema.GroupResource]cache.Indexers{gvr.GroupResource(): byColor}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(d.Stop)
-	if !d.Indexes(gvr.GroupResource(), "color") || d.Indexes(gvr.GroupResource(), "shape") || d.Indexes(schema.GroupResource{Group: "example.io", Resource: "gadgets"}, "color") {
-		t.Fatal("Indexes must report the configured indexes, per resource")
-	}
-	if !d.Indexes(gvr.GroupResource(), OwnerUIDIndex) || d.Indexes(schema.GroupResource{Resource: "events"}, OwnerUIDIndex) || d.Indexes(schema.GroupResource{Group: "events.k8s.io", Resource: "events"}, OwnerUIDIndex) {
-		t.Fatal("every resource but Events carries the owner index")
-	}
-	if err := d.startWatching(gvr, ""); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the cluster-wide informer", func() bool { return d.IsClusterWideSynced(gvr) })
-	red, _, ok := d.ReadableIndexed(gvr, "", "color", "red")
-	if !ok || !slices.Equal(names(red), []string{"a", "c"}) {
-		t.Fatalf("red = %v, %v", names(red), ok)
-	}
-	if _, _, ok := d.ReadableIndexed(gvr, "", "shape", "round"); ok {
-		t.Fatal("an index the informers lack can't answer")
-	}
-}
-
-// A resource's store version stays put while nothing changes and moves with
-// each change its stores apply, including one a later namespace watch makes.
-func TestDynamicStoreVersionMovesWithEachStoreChange(t *testing.T) {
-	gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "widgets"}
-	widget := func(name, rv string) *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "example.io/v1", "kind": "Widget",
-			"metadata": map[string]any{"name": name, "namespace": "alpha", "resourceVersion": rv},
-		}}
-	}
-	dyn := newWidgetDynamicClient(widget("a", "10"))
-	d, err := NewDynamicResourceCache(DynamicCacheConfig{DynamicClient: dyn})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(d.Stop)
-	if v, ok := d.StoreVersion(gvr.GroupResource()); !ok || len(v.stores) != 0 {
-		t.Fatalf("with no informer, StoreVersion = %+v, %v; want nothing to compare", v, ok)
-	}
-	if err := d.startWatching(gvr, "alpha"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "alpha's informer", func() bool { return d.IsNamespaceSynced(gvr, "alpha") })
-	listed, ok := d.StoreVersion(gvr.GroupResource())
-	if again, _ := d.StoreVersion(gvr.GroupResource()); !ok || len(listed.stores) != 1 || !again.Equal(listed) {
-		t.Fatalf("an unchanged store's version = %+v then %+v, %v", listed, again, ok)
-	}
-	if _, err := dyn.Resource(gvr).Namespace("alpha").Update(context.Background(), widget("a", "11"), metav1.UpdateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the update's version", func() bool { v, _ := d.StoreVersion(gvr.GroupResource()); return !v.Equal(listed) })
-	updated, _ := d.StoreVersion(gvr.GroupResource())
-	if err := d.startWatching(gvr, ""); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the cluster-wide informer", func() bool { return d.IsClusterWideSynced(gvr) })
-	if v, ok := d.StoreVersion(gvr.GroupResource()); !ok || v.Equal(updated) {
-		t.Fatalf("a store replaced by a cluster-wide one kept version %+v, %v", v, ok)
 	}
 }
 

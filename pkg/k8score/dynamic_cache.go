@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"runtime"
 	"slices"
 	"sort"
@@ -489,21 +490,18 @@ func (d *DynamicResourceCache) startWatching(gvr schema.GroupVersionResource, sc
 	// The factory makes one informer per GVR and Radar never drops a
 	// cluster-wide one, so this informer is new. Code that stops informers
 	// must build a fresh factory: this one would hand back a stopped informer
-	// that reports synced. Without the index, dependents reads of this GVR
-	// fail rather than miss.
-	if _, indexed := informer.GetIndexer().GetIndexers()[OwnerUIDIndex]; !indexed && !isEventResource(gvr) {
-		if err := informer.AddIndexers(ownerUIDIndexers); err != nil {
-			log.Printf("Warning: indexing %v by owner failed: %v", gvr, err)
-		}
+	// that reports synced. Without an index, reads of it from this GVR fail
+	// rather than miss.
+	indexers := cache.Indexers{}
+	if !isEventResource(gvr) {
+		maps.Copy(indexers, ownerUIDIndexers)
 	}
-	extra := cache.Indexers{}
-	for name, index := range d.config.Indexers[gvr.GroupResource()] {
-		if _, indexed := informer.GetIndexer().GetIndexers()[name]; !indexed {
-			extra[name] = index
-		}
+	maps.Copy(indexers, gitopsMembersIndexers[gvr.GroupResource()])
+	for name := range informer.GetIndexer().GetIndexers() {
+		delete(indexers, name)
 	}
-	if len(extra) > 0 {
-		if err := informer.AddIndexers(extra); err != nil {
+	if len(indexers) > 0 {
+		if err := informer.AddIndexers(indexers); err != nil {
 			log.Printf("Warning: indexing %v failed: %v", gvr, err)
 		}
 	}

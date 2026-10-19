@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/skyhook-io/radar/pkg/k8score"
 	"github.com/skyhook-io/radar/pkg/ownership"
@@ -226,12 +225,6 @@ func renderFluxManager(u *unstructured.Unstructured, o ownershiptest.Object) {
 // w.Collection says, and returns once every collected store has loaded.
 func render(t *testing.T, w ownershiptest.World) *rendered {
 	t.Helper()
-	return renderWith(t, w, MembershipIndexers())
-}
-
-// renderWith is render with the dynamic cache given indexers.
-func renderWith(t *testing.T, w ownershiptest.World, indexers map[schema.GroupResource]cache.Indexers) *rendered {
-	t.Helper()
 	var typedObjects, dynamicObjects []runtime.Object
 	for _, o := range w.Objects {
 		obj, typed := apiObject(t, o)
@@ -295,7 +288,7 @@ func renderWith(t *testing.T, w ownershiptest.World, indexers map[schema.GroupRe
 		t.Fatal(err)
 	}
 	t.Cleanup(typedCache.Stop)
-	dynamicCache, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{DynamicClient: r.dynamic, Discovery: discoveryCache, Indexers: indexers})
+	dynamicCache, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{DynamicClient: r.dynamic, Discovery: discoveryCache})
 	if err != nil {
 		t.Fatal(err)
 	}

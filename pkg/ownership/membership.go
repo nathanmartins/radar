@@ -70,10 +70,12 @@ type RecorderRead struct {
 	// Unreadable are the managers whose member list can't be read, any of
 	// which may name the object, sorted.
 	Unreadable []resourceid.Ref
-	// Gaps are the manager kinds and namespaces the search couldn't read. A
-	// gap on the object's own kind means the object can't be named: a
-	// reference that contradicts its kind's scope, or a kind whose scope
-	// Radar can't tell.
+	// Unnamed reports that the object can't be named: a reference that
+	// contradicts its kind's scope, or a kind whose scope Radar can't tell.
+	// No manager's list was searched, and Gaps hold only the object's gap.
+	Unnamed bool
+	// Gaps are the manager kinds and namespaces the search couldn't read, or
+	// why the object can't be named.
 	Gaps []Gap
 }
 
