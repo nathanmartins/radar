@@ -1,6 +1,7 @@
 package ownership_test
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -38,5 +39,51 @@ func TestAnyNamespace(t *testing.T) {
 	})
 	if n := checked.Load(); n == int32(len(namespaces)) {
 		t.Errorf("checked all %d namespaces after the first batch allowed", n)
+	}
+}
+
+// A caller who may read every namespace of a large cluster costs a bounded
+// number of checks: past them, a kind no checked namespace allows is
+// undecided rather than denied.
+func TestAnyNamespaceChecksABoundedNumber(t *testing.T) {
+	var namespaces []string
+	for i := range 1000 {
+		namespaces = append(namespaces, fmt.Sprint("ns-", i))
+	}
+	for _, tc := range []struct {
+		name    string
+		allowed string
+		want    ownership.Decision
+	}{
+		{"allowed among the first", "ns-3", ownership.Allowed},
+		{"allowed only far down the list", "ns-900", ownership.Undecided},
+		{"allowed nowhere", "", ownership.Undecided},
+	} {
+		var checked atomic.Int32
+		got := ownership.AnyNamespace(namespaces, func(ns string) ownership.Decision {
+			checked.Add(1)
+			if ns == tc.allowed {
+				return ownership.Allowed
+			}
+			return ownership.Denied
+		})
+		if got != tc.want {
+			t.Errorf("%s: AnyNamespace = %v, want %v", tc.name, got, tc.want)
+		}
+		if n := checked.Load(); n > 16 {
+			t.Errorf("%s: %d checks for one decision", tc.name, n)
+		}
+	}
+}
+
+func TestAnyNamespaceTreatsAPanickingCheckAsUndecided(t *testing.T) {
+	got := ownership.AnyNamespace([]string{"alpha", "beta"}, func(namespace string) ownership.Decision {
+		if namespace == "alpha" {
+			panic("permission check failed")
+		}
+		return ownership.Denied
+	})
+	if got != ownership.Undecided {
+		t.Fatalf("AnyNamespace with a panicking check = %v, want undecided", got)
 	}
 }

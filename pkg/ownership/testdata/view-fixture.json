@@ -197,9 +197,9 @@
       "object": "Job.batch alpha/j1",
       "subject": "present",
       "references": [
-        "unresolvable"
+        "unknown (kind_unknown Widget.example.io/)"
       ],
-      "owner": "reference 0: unresolvable"
+      "owner": "reference 0: unknown (kind_unknown Widget.example.io/)"
     },
     {
       "object": "ClusterWidget.example.io cw1",
@@ -470,9 +470,9 @@
       "object": "Job.batch alpha/j1",
       "subject": "present",
       "references": [
-        "unresolvable"
+        "unknown (kind_unknown Widget.example.io/)"
       ],
-      "owner": "reference 0: unresolvable"
+      "owner": "reference 0: unknown (kind_unknown Widget.example.io/)"
     },
     {
       "object": "ClusterWidget.example.io cw1",

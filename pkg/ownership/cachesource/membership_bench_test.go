@@ -78,6 +78,7 @@ func BenchmarkMembershipIndexUpdate(b *testing.B) {
 				app := application(0, entries)
 				_ = store.Add(app)
 				b.ReportAllocs()
+				b.ResetTimer()
 				for range b.N {
 					_ = store.Update(app)
 				}

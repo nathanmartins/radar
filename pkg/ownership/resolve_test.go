@@ -1,9 +1,18 @@
 package ownership_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/client-go/restmapper"
 
 	"github.com/skyhook-io/radar/pkg/ownership"
 	"github.com/skyhook-io/radar/pkg/ownership/ownershiptest"
@@ -59,7 +68,7 @@ func TestResolveOwnerJudgesReferencesAsTheCollectorDoes(t *testing.T) {
 		{"a cluster-scoped owner of a namespaced object", object(t, w, "example.io", "Gadget", "beta", "g1"), []ownership.OwnerState{ownership.OwnerFound}, []resourceid.Ref{ns("", "Node", "", "n1")}},
 		{"a cluster-scoped owner of a cluster-scoped object", object(t, w, "example.io", "ClusterWidget", "", "cw1"), []ownership.OwnerState{ownership.OwnerFound}, []resourceid.Ref{ns("", "Node", "", "n1")}},
 		{"a namespaced owner of a cluster-scoped object", object(t, w, "", "Node", "", "n2"), []ownership.OwnerState{ownership.OwnerUnresolvable}, []resourceid.Ref{{}}},
-		{"an owner version the API doesn't serve", object(t, w, "batch", "Job", "alpha", "j1"), []ownership.OwnerState{ownership.OwnerUnresolvable}, []resourceid.Ref{{}}},
+		{"an owner version discovery doesn't list", object(t, w, "batch", "Job", "alpha", "j1"), []ownership.OwnerState{ownership.OwnerUnknown}, []resourceid.Ref{{}}},
 		{"an owner at another served version", object(t, w, "", "ConfigMap", "alpha", "versioned"), []ownership.OwnerState{ownership.OwnerFound}, []resourceid.Ref{ns("example.io", "Widget", "alpha", "w1")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,7 +94,6 @@ func TestResolveOwnerRefusesMalformedReferences(t *testing.T) {
 		{Kind: "ReplicaSet", Name: "web-1", UID: "uid-alpha-web-1"},
 		{APIVersion: "apps/v1", Name: "web-1", UID: "uid-alpha-web-1"},
 		{APIVersion: "apps/v1", Kind: "ReplicaSet", UID: "uid-alpha-web-1"},
-		{APIVersion: "apps/v1", Kind: "Sprocket", Name: "x", UID: "uid-x"},
 	} {
 		if got := ownership.ResolveOwner(s, pod, ref); got.State != ownership.OwnerUnresolvable {
 			t.Errorf("%+v = %v, want unresolvable", ref, got.State)
@@ -93,6 +101,19 @@ func TestResolveOwnerRefusesMalformedReferences(t *testing.T) {
 	}
 	if got := ownership.ResolveOwner(s, pod, metav1.OwnerReference{APIVersion: "v1", Kind: "Event", Name: "e1", UID: "uid-alpha-e1"}); got.State != ownership.OwnerExcluded {
 		t.Errorf("an Event owner = %v, want excluded", got.State)
+	}
+}
+
+// A kind discovery doesn't list may be installed since: the collector retries
+// it, so the owner is unknown, not unresolvable, even with discovery whole.
+func TestResolveOwnerOfAKindDiscoveryDoesntListIsUnknown(t *testing.T) {
+	w := ownershiptest.Fixture()
+	s, _ := ownershiptest.Scan(w).Begin()
+	pod := s.Object(resourceid.Ref{Kind: "Pod", Namespace: "alpha", Name: "web-1-a"}).Object
+	got := ownership.ResolveOwner(s, pod, metav1.OwnerReference{APIVersion: "apps/v1", Kind: "Sprocket", Name: "x", UID: "uid-x"})
+	want := ownership.Gap{Kind: resourceid.GroupKind{Group: "apps", Kind: "Sprocket"}, Reason: readreason.KindUnknown}
+	if got.State != ownership.OwnerUnknown || got.Gap != want {
+		t.Fatalf("an owner kind discovery doesn't list = %v %+v, want unknown %+v", got.State, got.Gap, want)
 	}
 }
 
@@ -137,4 +158,138 @@ func TestResolveOwnerExcludesEventOwnersWhateverDiscoveryLists(t *testing.T) {
 			t.Errorf("an Event owner at %s, Events unlisted = %v %+v, want excluded", apiVersion, got.State, got.Gap)
 		}
 	}
+}
+
+// collectorMapper is the discovery RESTMapper the garbage collector resolves
+// owner references through, built from the same served resources.
+func collectorMapper(resources []ownership.ServedResource) meta.RESTMapper {
+	byGroup := map[string]*restmapper.APIGroupResources{}
+	var groups []*restmapper.APIGroupResources
+	for _, r := range resources {
+		g := byGroup[r.Group]
+		if g == nil {
+			g = &restmapper.APIGroupResources{Group: metav1.APIGroup{Name: r.Group}, VersionedResources: map[string][]metav1.APIResource{}}
+			byGroup[r.Group] = g
+			groups = append(groups, g)
+		}
+		gv := schema.GroupVersion{Group: r.Group, Version: r.Version}.String()
+		if !slices.ContainsFunc(g.Group.Versions, func(v metav1.GroupVersionForDiscovery) bool { return v.Version == r.Version }) {
+			g.Group.Versions = append(g.Group.Versions, metav1.GroupVersionForDiscovery{GroupVersion: gv, Version: r.Version})
+		}
+		g.VersionedResources[r.Version] = append(g.VersionedResources[r.Version], metav1.APIResource{Name: r.Resource, Kind: r.Kind, Namespaced: r.Namespaced, Verbs: r.Verbs})
+	}
+	for _, g := range groups {
+		g.Group.PreferredVersion = g.Group.Versions[0]
+	}
+	return restmapper.NewDiscoveryRESTMapper(groups)
+}
+
+// Every spelling of an owner reference the API server admits must resolve as
+// the collector maps it: where its RESTMapper maps nothing, or maps a
+// namespaced owner for a cluster-scoped object, the reference is
+// unresolvable; where it maps a resource no API serves, the owner is gone;
+// otherwise the owner is the object of the mapped kind at the reference's
+// name, judged by UID, unless Radar can't read that kind.
+func TestResolveOwnerMapsReferencesAsTheCollectorsRESTMapperDoes(t *testing.T) {
+	w := ownershiptest.Fixture()
+	s, _ := ownershiptest.Scan(w).Begin()
+	mapper := collectorMapper(w.Resources)
+	kindOf := map[schema.GroupResource]resourceid.GroupKind{}
+	for _, r := range w.Resources {
+		kindOf[schema.GroupResource{Group: r.Group, Resource: r.Resource}] = resourceid.GroupKind{Group: r.Group, Kind: r.Kind}
+	}
+	dependents := []ownership.Observation{
+		{Ref: resourceid.Ref{Kind: "Pod", Namespace: "alpha", Name: "probe"}},
+		{Ref: resourceid.Ref{Kind: "Node", Name: "probe"}},
+	}
+	checked := 0
+	for _, r := range w.Resources {
+		if ownership.IsEvent(resourceid.GroupKind{Group: r.Group, Kind: r.Kind}) {
+			continue
+		}
+		var names []string
+		uids := map[string]types.UID{}
+		for _, o := range w.Objects {
+			if o.Ref.Group == r.Group && o.Ref.Kind == r.Kind && !slices.Contains(names, o.Ref.Name) {
+				names = append(names, o.Ref.Name)
+				uids[o.Ref.Name] = o.UID
+			}
+		}
+		names = append(names, "missing")
+		spellings := []string{r.Kind, strings.ToLower(r.Kind), strings.ToUpper(r.Kind), r.Kind[:1] + strings.ToLower(r.Kind[1:]), r.Kind + "List", strings.ToLower(r.Kind) + "List", "List"}
+		for _, version := range []string{r.Version, "v9", runtime.APIVersionInternal} {
+			for _, kind := range spellings {
+				for _, name := range names {
+					for _, uid := range []types.UID{uids[name], "uid-other"} {
+						if uid == "" {
+							continue
+						}
+						ref := metav1.OwnerReference{APIVersion: resourceid.APIVersion(r.Group, version), Kind: kind, Name: name, UID: uid}
+						if errs := apivalidation.ValidateOwnerReferences([]metav1.OwnerReference{ref}, field.NewPath("ownerReferences")); len(errs) > 0 {
+							continue
+						}
+						for _, dependent := range dependents {
+							checked++
+							got := ownership.ResolveOwner(s, dependent, ref)
+							want, wantRef, readable := collectorResolves(t, w, mapper, kindOf, dependent, ref)
+							if got.State == ownership.OwnerUnknown && readable == false {
+								continue
+							}
+							if got.State != want || (want != ownership.OwnerUnresolvable && got.Ref != wantRef) {
+								t.Errorf("%s %s/%s uid %s, dependent %v: ResolveOwner = %v at %v; the collector maps it to %v at %v", ref.APIVersion, ref.Kind, ref.Name, ref.UID, dependent.Ref, got.State, got.Ref, want, wantRef)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if checked < 500 {
+		t.Fatalf("only %d references checked", checked)
+	}
+}
+
+// collectorResolves is what the collector's RESTMapper and a GET make of ref.
+// readable is false when Radar can't read the mapped kind, so an unknown
+// answer is honest.
+func collectorResolves(t *testing.T, w ownershiptest.World, mapper meta.RESTMapper, kindOf map[schema.GroupResource]resourceid.GroupKind, dependent ownership.Observation, ref metav1.OwnerReference) (ownership.OwnerState, resourceid.Ref, bool) {
+	t.Helper()
+	gv, err := schema.ParseGroupVersion(ref.APIVersion)
+	if err != nil {
+		return ownership.OwnerUnresolvable, resourceid.Ref{}, true
+	}
+	mapping, err := mapper.RESTMapping(schema.GroupKind{Group: gv.Group, Kind: ref.Kind}, gv.Version)
+	if err != nil {
+		// The collector retries a mapping error: the next discovery may serve
+		// the kind.
+		return ownership.OwnerUnknown, resourceid.Ref{}, true
+	}
+	namespaced := mapping.Scope.Name() == meta.RESTScopeNameNamespace
+	if namespaced && dependent.Ref.Namespace == "" {
+		return ownership.OwnerUnresolvable, resourceid.Ref{}, true
+	}
+	gk, served := kindOf[mapping.Resource.GroupResource()]
+	at := resourceid.Ref{Group: gv.Group, Kind: ref.Kind, Name: ref.Name}
+	if served {
+		at.Kind = gk.Kind
+	}
+	if namespaced {
+		at.Namespace = dependent.Ref.Namespace
+	}
+	if !served {
+		// The GET of a resource no API serves is a 404: the owner is gone.
+		return ownership.OwnerGone, at, true
+	}
+	if c := w.Collection[gk]; c.State != ownershiptest.Collected {
+		return ownership.OwnerUnknown, at, false
+	}
+	for _, o := range w.Objects {
+		if o.Ref == at {
+			if o.UID == ref.UID {
+				return ownership.OwnerFound, at, true
+			}
+			return ownership.OwnerReplaced, at, true
+		}
+	}
+	return ownership.OwnerGone, at, true
 }

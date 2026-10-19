@@ -2,6 +2,7 @@ package ownership_test
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -102,6 +103,47 @@ func TestViewReadsEachObjectAndSearchesEachOwnerOnce(t *testing.T) {
 
 // Once a view has seen an object, every answer reflects that capture, though
 // the object changes before the next read.
+// catalogCounter counts the view's catalog lookups: it makes one for each
+// object it considers for an owner's children.
+type catalogCounter struct {
+	ownership.Session
+	lookups int
+}
+
+func (c *catalogCounter) Catalog() *ownership.Catalog {
+	c.lookups++
+	return c.Session.Catalog()
+}
+
+// A walk over an owner's dependents, as a delete estimate makes, considers
+// each object it captured for the owners the object names, not for every
+// owner it asks about, so its work grows with the objects and not their
+// square.
+func TestViewConsidersEachCaptureForTheOwnersItNames(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
+	const n = 200
+	var pods []resourceid.Ref
+	for i := range n {
+		pods = append(pods, b.Add("", "Pod", "alpha", fmt.Sprint("web-", i), rs.OwnerRef(true)).Ref)
+	}
+	s, err := ownershiptest.Scan(b.World()).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &catalogCounter{Session: s}
+	v := ownership.NewView(c, ownership.Unrestricted())
+	if got := v.Children(rs.Ref, 0); len(got.Children) != n {
+		t.Fatalf("children of the ReplicaSet = %d, want %d", len(got.Children), n)
+	}
+	for _, p := range pods {
+		v.Children(p, 0)
+	}
+	if c.lookups > 4*n {
+		t.Errorf("a walk over %d children made %d catalog lookups; want a few per child", n, c.lookups)
+	}
+}
+
 // An answer that found nothing is still an answer: an owner without
 // children, or a manager whose member list can't be read, isn't asked again.
 func TestViewReadsOnceWhenThereIsNothingToFind(t *testing.T) {
@@ -192,6 +234,33 @@ func TestViewAnswersFromItsCaptureWhenTheSearchFindsANewerCopy(t *testing.T) {
 }
 
 func isControllerRef(r metav1.OwnerReference) bool { return r.Controller != nil && *r.Controller }
+
+// A Pod the view read while Pods loaded is unknown to it. Once they have
+// loaded, the ReplicaSet's search finds the Pod naming it; leaving the Pod out
+// must not leave the children complete, since the view can't say whether it
+// is one.
+func TestViewChildrenSayWhatTheyReadBeforeItCouldBeRead(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
+	pod := b.Add("", "Pod", "alpha", "web-a", rs.OwnerRef(true))
+	loading, loaded := b.World(), b.World()
+	loading.Collection[pods] = ownershiptest.Collection{State: ownershiptest.Loading}
+	s := newCountingSession(t, loading)
+	later, err := ownershiptest.Scan(loaded).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.later, s.switchAt = later, "Object"
+	v := ownership.NewView(s, ownership.Unrestricted())
+	if got := v.Owner(pod.Ref); got.Subject.Read.State != ownership.Unavailable {
+		t.Fatalf("scenario: the Pod must read unavailable while Pods load, got %v", got.Subject.Read.State)
+	}
+	got := v.Children(rs.Ref, 0)
+	want := []ownership.Gap{{Kind: pods, Namespace: "alpha", Reason: readreason.KindSyncPending}}
+	if len(got.Children) != 0 || !slices.Equal(got.Gaps, want) || got.Complete() {
+		t.Fatalf("Children after the Pods loaded = %q gaps %+v complete=%v; want none, and the gap of the Pod read before", childRefs(got), got.Gaps, got.Complete())
+	}
+}
 
 // A manager whose status changed after the view read it answers no member
 // list, rather than one from another version than its other answers.
@@ -344,6 +413,53 @@ func TestViewValidateRefusesAnObjectAdoptedAfterTheSearch(t *testing.T) {
 		err = v.Validate()
 		if want := !podsLoading; errors.Is(err, ownership.ErrObjectsChanged) != want {
 			t.Errorf("pods loading %v: Validate = %v; want ErrObjectsChanged %v", podsLoading, err, want)
+		}
+	}
+}
+
+// Radar collects Pods only in alpha, so a Node's search reads alpha and says
+// the namespaces Radar doesn't collect went unread. A Pod in alpha naming the
+// Node, first read or seeded after the search, is one the search should have
+// found; a Pod seeded in a namespace Radar doesn't collect is not.
+func TestViewValidateRefusesAnAdoptionInANamespaceTheSearchRead(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		namespace string
+		seed      bool
+		want      error
+	}{
+		{"read in alpha", "alpha", false, ownership.ErrObjectsChanged},
+		{"seeded in alpha", "alpha", true, ownership.ErrObjectsChanged},
+		{"seeded where Radar doesn't collect Pods", "beta", true, nil},
+	} {
+		b := ownershiptest.NewBuilder()
+		node := b.Add("", "Node", "", "n")
+		before := b.World()
+		pod := b.Add("", "Pod", tc.namespace, "late", node.OwnerRef(true))
+		after := b.World()
+		for _, w := range []ownershiptest.World{before, after} {
+			w.Collection[pods] = ownershiptest.Collection{Namespaces: []string{"alpha"}}
+		}
+		s := newCountingSession(t, before)
+		if !tc.seed {
+			later, err := ownershiptest.Scan(after).Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.later, s.switchAt = later, "OwnerCandidates"
+		}
+		v := ownership.NewView(s, ownership.Unrestricted())
+		if got := v.Children(node.Ref, 0); len(got.Children) != 0 || got.Complete() {
+			t.Fatalf("%s: the Node's children before the Pod = %q complete=%v", tc.name, childRefs(got), got.Complete())
+		}
+		if tc.seed {
+			v.Seed(ownershiptest.Observe(pod))
+		}
+		if got := v.Owner(pod.Ref); got.Resolution.State != ownership.OwnerFound {
+			t.Fatalf("%s: the Pod's owner = %v", tc.name, got.Resolution.State)
+		}
+		if err := v.Validate(); !errors.Is(err, tc.want) {
+			t.Errorf("%s: Validate = %v, want %v", tc.name, err, tc.want)
 		}
 	}
 }

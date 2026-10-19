@@ -89,28 +89,29 @@ func membersOf(gk resourceid.GroupKind, u *unstructured.Unstructured) recordedMe
 	return recordedMembers{}
 }
 
-// appliesHere reports whether a manager's spec says it applies to this
-// cluster: an Argo CD destination at the in-cluster address, or a Flux object
-// without spec.kubeConfig.
+// appliesHere reports whether a manager's member list names objects of this
+// cluster: an Argo CD list compared at the in-cluster destination, or a Flux
+// object without spec.kubeConfig.
 func appliesHere(gk resourceid.GroupKind, u *unstructured.Unstructured) bool {
 	if gk == ownership.ArgoApplication {
-		return gitops.IsInClusterDestination(u)
+		name, server, _ := gitops.ArgoComparedDestination(u)
+		return gitops.IsInClusterArgoDestination(name, server)
 	}
 	return gitops.FluxTargetsLocalCluster(u)
 }
 
-// argoMembers reads status.resources. An Application with no destination, or
-// whose list holds an entry that names no object, has a list Radar can't
-// trust.
+// argoMembers reads status.resources, as of the destination Argo CD compared
+// it against. An Application with no destination, or whose list holds an entry
+// that names no object, has a list Radar can't trust.
 func argoMembers(app *unstructured.Unstructured) recordedMembers {
-	if !gitops.HasArgoDestination(app) {
+	name, server, destination := gitops.ArgoComparedDestination(app)
+	if name == "" && server == "" {
 		return recordedMembers{}
 	}
 	state := ownership.MembersRemote
-	if appliesHere(ownership.ArgoApplication, app) {
+	if gitops.IsInClusterArgoDestination(name, server) {
 		state = ownership.MembersRecorded
 	}
-	destination, _, _ := unstructured.NestedString(app.Object, "spec", "destination", "namespace")
 	m := recordedMembers{state: state, destination: destination}
 	raw, _, err := unstructured.NestedFieldNoCopy(app.Object, "status", "resources")
 	if err != nil {
@@ -336,28 +337,11 @@ func (s *session) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 			q.gap(gk, "", readreason.ReadError)
 			continue
 		}
-		// A manager can change between two of these reads: from an unreadable
-		// list to one naming the object, or from one reading of its entry to
-		// another. Reading the unreadable key and the member keys twice, in
-		// turn, finds a manager that changes once mid-search in at least one
-		// of them; one found in two lists only leaves the answer incomplete.
-		for range 2 {
-			s.dynamicIndexed(q, kind, membersIndex, unreadableKey, func(_ schema.GroupVersionResource, u *unstructured.Unstructured) {
-				unreadable = append(unreadable, resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: u.GetNamespace(), Name: u.GetName()})
-			})
-			s.afterRecordersRead(unreadableKey)
-			for _, key := range keys {
-				s.dynamicIndexed(q, kind, membersIndex, key, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
-					manager := resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: u.GetNamespace(), Name: u.GetName()}
-					if !appliesHere(gk, u) {
-						elsewhere = append(elsewhere, manager)
-						return
-					}
-					recorders = append(recorders, candidate{ref: manager, apiVersion: gvr.GroupVersion().String(), obj: u})
-				})
-				s.afterRecordersRead(key)
-			}
-		}
+		m := s.readMembers(kind, keys)
+		recorders = append(recorders, m.recorders...)
+		elsewhere = append(elsewhere, m.elsewhere...)
+		unreadable = append(unreadable, m.unreadable...)
+		q.gaps = append(q.gaps, m.gaps...)
 	}
 	var r ownership.RecorderRead
 	slices.SortFunc(recorders, func(a, b candidate) int { return compareRefs(a.ref, b.ref) })
@@ -376,6 +360,62 @@ func (s *session) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 	slices.SortFunc(q.gaps, compareGaps)
 	r.Gaps = slices.Compact(q.gaps)
 	return r
+}
+
+// membersRead is what one manager kind's index reads found.
+type membersRead struct {
+	recorders             []candidate
+	elsewhere, unreadable []resourceid.Ref
+	gaps                  []ownership.Gap
+}
+
+// readAttempts bounds how often readMembers reads a manager kind whose stores
+// keep changing while it reads them.
+const readAttempts = 3
+
+// readMembers reads kind's unreadable list and the member keys from one state
+// of its stores. A manager can change between two of these reads, from an
+// unreadable list to one naming the object or from one reading of its entry to
+// another, and a manager that changes twice can be in neither list at each
+// read; so the reads count only if no store of kind changed while they ran.
+// Without store versions to compare, it reads everything twice, in turn, which
+// finds a manager that changes once mid-search.
+func (s *session) readMembers(kind ownership.Kind, keys []string) membersRead {
+	gr := schema.GroupResource{Group: kind.Group, Resource: kind.Resource}
+	for range readAttempts {
+		before, fenced := s.caches.Dynamic.StoreVersion(gr)
+		var m membersRead
+		s.readMembersOnce(&m, kind, keys)
+		if !fenced {
+			s.readMembersOnce(&m, kind, keys)
+			return m
+		}
+		if after, _ := s.caches.Dynamic.StoreVersion(gr); after.Equal(before) {
+			return m
+		}
+	}
+	return membersRead{gaps: []ownership.Gap{{Kind: kind.GroupKind, Reason: readreason.KindSyncPending}}}
+}
+
+func (s *session) readMembersOnce(m *membersRead, kind ownership.Kind, keys []string) {
+	gk := kind.GroupKind
+	q := &search{domain: ownership.Everywhere()}
+	s.dynamicIndexed(q, kind, membersIndex, unreadableKey, func(_ schema.GroupVersionResource, u *unstructured.Unstructured) {
+		m.unreadable = append(m.unreadable, resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: u.GetNamespace(), Name: u.GetName()})
+	})
+	s.afterRecordersRead(unreadableKey)
+	for _, key := range keys {
+		s.dynamicIndexed(q, kind, membersIndex, key, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
+			manager := resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: u.GetNamespace(), Name: u.GetName()}
+			if !appliesHere(gk, u) {
+				m.elsewhere = append(m.elsewhere, manager)
+				return
+			}
+			m.recorders = append(m.recorders, candidate{ref: manager, apiVersion: gvr.GroupVersion().String(), obj: u})
+		})
+		s.afterRecordersRead(key)
+	}
+	m.gaps = append(m.gaps, q.gaps...)
 }
 
 // afterRecordersRead runs the session's recordersRead hook, if a test set one.

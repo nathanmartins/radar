@@ -51,13 +51,22 @@ func (unrestricted) Namespaces() ([]string, bool)               { return nil, tr
 func (unrestricted) Everything() bool                           { return true }
 func (unrestricted) AllKindsIn(string) bool                     { return true }
 
+// maxNamespaceChecks bounds the checks one AnyNamespace call makes. A caller
+// who may read every namespace of a large cluster would otherwise cost a
+// permission request per namespace for each kind decided across them.
+const maxNamespaceChecks = 16
+
 // AnyNamespace decides whether check allows at least one of namespaces:
 // allowed when one does, undecided when none does but one couldn't be
-// decided, denied otherwise, and for none. Each check can be a permission
-// request, so it makes a few at a time.
+// decided or namespaces past the first maxNamespaceChecks went unchecked,
+// denied otherwise, and for none. Each check can be a permission request, so
+// it makes a few at a time.
 func AnyNamespace(namespaces []string, check func(namespace string) Decision) Decision {
 	const batch = 8
 	result := Denied
+	if len(namespaces) > maxNamespaceChecks {
+		namespaces, result = namespaces[:maxNamespaceChecks], Undecided
+	}
 	for start := 0; start < len(namespaces); start += batch {
 		group := namespaces[start:min(start+batch, len(namespaces))]
 		decisions := make([]Decision, len(group))
@@ -66,6 +75,13 @@ func AnyNamespace(namespaces []string, check func(namespace string) Decision) De
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// These goroutines are outside the request's panic recovery:
+				// a check that panics is undecided, not a crashed server.
+				defer func() {
+					if recover() != nil {
+						decisions[i] = Undecided
+					}
+				}()
 				decisions[i] = check(namespace)
 			}()
 		}

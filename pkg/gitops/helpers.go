@@ -31,11 +31,38 @@ func IsInClusterDestination(app *unstructured.Unstructured) bool {
 	if app == nil {
 		return false
 	}
-	name, server := argoDestination(app)
-	if strings.EqualFold(name, "in-cluster") {
-		return true
+	return IsInClusterArgoDestination(argoDestination(app))
+}
+
+// IsInClusterArgoDestination reports whether an Argo CD destination cluster,
+// given by name or server, is the cluster Radar is connected to.
+func IsInClusterArgoDestination(name, server string) bool {
+	return strings.EqualFold(name, "in-cluster") || isLocalAPIServer(server)
+}
+
+// ArgoComparedDestination returns the destination an Application's
+// status.resources describes: status.sync.comparedTo.destination, which Argo
+// CD records with each comparison, or spec.destination before one does. Until
+// Argo CD compares against a changed destination, the list still names the
+// old destination's objects.
+func ArgoComparedDestination(app *unstructured.Unstructured) (name, server, namespace string) {
+	if app == nil {
+		return "", "", ""
 	}
-	return isLocalAPIServer(server)
+	name, server, namespace = argoDestinationAt(app, "status", "sync", "comparedTo", "destination")
+	if name == "" && server == "" {
+		name, server, namespace = argoDestinationAt(app, "spec", "destination")
+	}
+	return name, server, namespace
+}
+
+func argoDestinationAt(app *unstructured.Unstructured, path ...string) (name, server, namespace string) {
+	raw, _, _ := unstructured.NestedFieldNoCopy(app.Object, path...)
+	destination, _ := raw.(map[string]any)
+	name, _ = destination["name"].(string)
+	server, _ = destination["server"].(string)
+	namespace, _ = destination["namespace"].(string)
+	return strings.TrimSpace(name), strings.TrimSpace(server), namespace
 }
 
 // HasArgoDestination reports whether an Argo Application names a destination
@@ -92,6 +119,9 @@ func isLocalAPIServer(server string) bool {
 
 // ParseFluxInventoryID parses Flux's namespace_name_group_kind inventory key
 // from the right so resource names containing underscores remain intact.
+// Flux writes a colon in an RBAC object's name as a double underscore
+// (system:metrics-server is system__metrics-server) and reads every "__" back
+// as a colon; no other kind's name can hold either.
 func ParseFluxInventoryID(id string) (group, kind, namespace, name string, ok bool) {
 	parts := strings.Split(id, "_")
 	if len(parts) < 4 {
@@ -100,7 +130,7 @@ func ParseFluxInventoryID(id string) (group, kind, namespace, name string, ok bo
 	kind = parts[len(parts)-1]
 	group = resourceid.NormalizeGroup(parts[len(parts)-2])
 	namespace = parts[0]
-	name = strings.Join(parts[1:len(parts)-2], "_")
+	name = strings.ReplaceAll(strings.Join(parts[1:len(parts)-2], "_"), "__", ":")
 	if kind == "" || name == "" {
 		return "", "", "", "", false
 	}

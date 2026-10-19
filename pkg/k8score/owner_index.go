@@ -1,6 +1,9 @@
 package k8score
 
 import (
+	"cmp"
+	"slices"
+
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -122,6 +125,53 @@ func (d *DynamicResourceCache) Indexes(gr schema.GroupResource, index string) bo
 	}
 	_, ok := d.config.Indexers[gr][index]
 	return ok
+}
+
+// StoreVersion is the informers serving a resource at a moment and the
+// resource version each one's store had applied.
+type StoreVersion struct {
+	stores []storeVersion
+}
+
+type storeVersion struct {
+	key   informerKey
+	entry *informerEntry
+	rv    string
+}
+
+// Equal reports whether v and other are the same informers at the same
+// versions.
+func (v StoreVersion) Equal(other StoreVersion) bool {
+	return slices.Equal(v.stores, other.stores)
+}
+
+// StoreVersion returns the versions the stores of gr's informers have applied,
+// each read under its store's lock, and whether every store reports one: none
+// does with client-go's AtomicFIFO feature off. A store moves its version
+// under the lock that changes its objects and indexes, so equal versions
+// before and after several reads show no store of gr changed between them,
+// which separate reads can't otherwise tell.
+func (d *DynamicResourceCache) StoreVersion(gr schema.GroupResource) (StoreVersion, bool) {
+	if d == nil {
+		return StoreVersion{}, false
+	}
+	var v StoreVersion
+	d.mu.RLock()
+	for key, e := range d.informers {
+		if key.gvr.GroupResource() == gr {
+			v.stores = append(v.stores, storeVersion{key: key, entry: e})
+		}
+	}
+	d.mu.RUnlock()
+	slices.SortFunc(v.stores, func(a, b storeVersion) int {
+		return cmp.Or(cmp.Compare(a.key.gvr.Version, b.key.gvr.Version), cmp.Compare(a.key.ns, b.key.ns))
+	})
+	for i := range v.stores {
+		if v.stores[i].rv = v.stores[i].entry.informer.GetStore().LastStoreSyncResourceVersion(); v.stores[i].rv == "" {
+			return StoreVersion{}, false
+		}
+	}
+	return v, true
 }
 
 // ReadableIndexed returns the objects of gvr in namespace that index holds

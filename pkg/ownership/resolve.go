@@ -20,15 +20,19 @@ const (
 	// UID.
 	OwnerFound
 	// OwnerGone: no object has the reference's coordinates. The collector
-	// treats the reference as dangling.
+	// treats the reference as dangling. That includes a List kind the
+	// collector's RESTMapper makes up, which maps to a resource no API serves.
 	OwnerGone
 	// OwnerReplaced: an object has the coordinates under another UID, a
 	// later incarnation. The collector treats the reference as dangling too.
 	OwnerReplaced
 	// OwnerUnresolvable: the collector can't resolve the reference — its
-	// apiVersion doesn't parse, its kind or version isn't served, it names no
-	// object, or it names a namespaced owner for a cluster-scoped object — so
-	// it never collects the dependent through it.
+	// apiVersion doesn't parse, it names no object, or it names a namespaced
+	// owner for a cluster-scoped object — so it never collects the dependent
+	// through it. A kind or version its RESTMapper doesn't map is unknown
+	// instead (kind_unknown): the collector retries those, since the next
+	// discovery may serve them. The RESTMapper maps a kind's all-lowercase
+	// spelling too, and the internal version to any serving one.
 	OwnerUnresolvable
 	// OwnerExcluded: the reference names an Event, which ownership doesn't
 	// read.
@@ -74,7 +78,7 @@ func resolveOwner(catalog *Catalog, dependent Observation, ref metav1.OwnerRefer
 	if err != nil || ref.APIVersion == "" || ref.Kind == "" || ref.Name == "" {
 		return OwnerResolution{State: OwnerUnresolvable}
 	}
-	gk := resourceid.GroupKind{Group: gv.Group, Kind: ref.Kind}
+	gk, spelled := catalog.referencedKind(resourceid.GroupKind{Group: gv.Group, Kind: ref.Kind})
 	if IsEvent(gk) {
 		// Events are outside ownership, whatever discovery lists.
 		return OwnerResolution{State: OwnerExcluded, Ref: resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: dependent.Ref.Namespace, Name: ref.Name}}
@@ -82,17 +86,32 @@ func resolveOwner(catalog *Catalog, dependent Observation, ref metav1.OwnerRefer
 	unknown := func(namespace string) OwnerResolution {
 		return OwnerResolution{Gap: Gap{Kind: gk, Namespace: namespace, Reason: readreason.ReadError}}
 	}
-	if catalog.Ambiguous(gk) {
+	if !spelled || catalog.Ambiguous(gk) {
 		return unknown("")
 	}
 	kind, known := catalog.Kind(gk)
-	if !known || !catalog.Serves(gk, gv.Version) {
-		// What discovery didn't list is unserved only if discovery answered
-		// for every group.
+	if !known || !catalog.mapsAt(gk, gv.Version) {
+		if namespaced, ambiguous, made := catalog.listKind(gk, gv.Version); made {
+			switch {
+			case ambiguous:
+				return unknown("")
+			case namespaced && dependent.Ref.Namespace == "":
+				return OwnerResolution{State: OwnerUnresolvable}
+			}
+			gone := resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Name: ref.Name}
+			if namespaced {
+				gone.Namespace = dependent.Ref.Namespace
+			}
+			return OwnerResolution{State: OwnerGone, Ref: gone}
+		}
+		// The collector retries a reference its RESTMapper can't map, since
+		// its next discovery may serve the kind, and the catalog can be older
+		// than the collector's discovery. So what discovery didn't list is
+		// unknown, never unresolvable.
 		if !catalog.Complete() {
 			return unknown("")
 		}
-		return OwnerResolution{State: OwnerUnresolvable}
+		return OwnerResolution{Gap: Gap{Kind: gk, Reason: readreason.KindUnknown}}
 	}
 	if kind.Namespaced && dependent.Ref.Namespace == "" {
 		return OwnerResolution{State: OwnerUnresolvable}

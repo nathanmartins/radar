@@ -180,7 +180,8 @@ func renderApplication(u *unstructured.Unstructured, o ownershiptest.Object) {
 // renderFluxManager writes the spec and status by which a Flux Kustomization
 // or HelmRelease says what o means, in the form o.Form picks. A
 // cluster-scoped member is written with the manager's namespace every other
-// entry, as Flux may record a namespace the kind ignores.
+// entry, as Flux may record a namespace the kind ignores, and a colon in an
+// RBAC member's name as the double underscore Flux writes.
 func renderFluxManager(u *unstructured.Unstructured, o ownershiptest.Object) {
 	entries := []any{}
 	for i, m := range o.Members {
@@ -188,7 +189,11 @@ func renderFluxManager(u *unstructured.Unstructured, o ownershiptest.Object) {
 		if namespaced, known := namespacedKind(m.GroupKind()); known && !namespaced && i%2 == 1 {
 			namespace = o.Ref.Namespace
 		}
-		entries = append(entries, map[string]any{"id": strings.Join([]string{namespace, m.Name, m.Group, m.Kind}, "_"), "v": "v1"})
+		name := m.Name
+		if m.Group == "rbac.authorization.k8s.io" {
+			name = strings.ReplaceAll(name, ":", "__")
+		}
+		entries = append(entries, map[string]any{"id": strings.Join([]string{namespace, name, m.Group, m.Kind}, "_"), "v": "v1"})
 	}
 	spec := map[string]any{"interval": "10m"}
 	inventory := map[string]any{"entries": entries}

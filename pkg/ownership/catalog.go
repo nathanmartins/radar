@@ -3,6 +3,10 @@ package ownership
 import (
 	"cmp"
 	"slices"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
@@ -28,9 +32,9 @@ type Kind struct {
 	// Versions are every version serving the kind, sorted. They are the
 	// catalog's own and must not be modified.
 	Versions []string
-	// GarbageCollected: Kubernetes' garbage collector acts on objects of this
-	// kind, which it does for every resource served with delete, list and
-	// watch. One such version is enough.
+	// GarbageCollected: the kind is served with delete, list and watch, which
+	// Kubernetes' garbage collector needs to act on its objects. One such
+	// version is enough. The collector ignores Events whatever their verbs.
 	GarbageCollected bool
 }
 
@@ -44,7 +48,13 @@ type Catalog struct {
 	ambiguous []AmbiguousKind
 	// ambiguousDependents are those of them the garbage collector may act on.
 	ambiguousDependents []AmbiguousKind
-	complete            bool
+	// lowercase maps a kind's all-lowercase spelling, where it differs, to
+	// the kinds it spells: the garbage collector's discovery RESTMapper maps
+	// it too.
+	lowercase map[resourceid.GroupKind][]resourceid.GroupKind
+	// groupVersions are the group versions discovery listed a resource in.
+	groupVersions map[schema.GroupVersion]bool
+	complete      bool
 }
 
 // AmbiguousKind is a kind two resources of one group serve.
@@ -61,11 +71,19 @@ type AmbiguousKind struct {
 // catalog may still be served.
 func NewCatalog(resources []ServedResource, complete bool) *Catalog {
 	byKind := map[resourceid.GroupKind][]ServedResource{}
+	c := &Catalog{lowercase: map[resourceid.GroupKind][]resourceid.GroupKind{}, groupVersions: map[schema.GroupVersion]bool{}, complete: complete}
 	for _, r := range resources {
 		gk := resourceid.GroupKind{Group: r.Group, Kind: r.Kind}
+		if byKind[gk] == nil {
+			if lower := strings.ToLower(r.Kind); lower != r.Kind {
+				spelled := resourceid.GroupKind{Group: r.Group, Kind: lower}
+				c.lowercase[spelled] = append(c.lowercase[spelled], gk)
+			}
+		}
 		byKind[gk] = append(byKind[gk], r)
+		c.groupVersions[schema.GroupVersion{Group: r.Group, Version: r.Version}] = true
 	}
-	c := &Catalog{kinds: make(map[resourceid.GroupKind]Kind, len(byKind)), complete: complete}
+	c.kinds = make(map[resourceid.GroupKind]Kind, len(byKind))
 	for gk, served := range byKind {
 		resource := served[0].Resource
 		if slices.ContainsFunc(served, func(r ServedResource) bool { return r.Resource != resource }) {
@@ -149,7 +167,65 @@ func (c *Catalog) Serves(gk resourceid.GroupKind, version string) bool {
 	return ok && slices.Contains(k.Versions, version)
 }
 
-// Complete reports whether the catalog lists every served kind.
+// referencedKind is the kind an owner reference's group and kind name as the
+// garbage collector's discovery RESTMapper reads them: the kind as spelled,
+// or the kind whose all-lowercase spelling it is. ok is false when that
+// spelling is two kinds'.
+func (c *Catalog) referencedKind(gk resourceid.GroupKind) (resourceid.GroupKind, bool) {
+	if _, known := c.kinds[gk]; known || c.Ambiguous(gk) {
+		return gk, true
+	}
+	switch spelled := c.lowercase[gk]; len(spelled) {
+	case 0:
+		return gk, true
+	case 1:
+		return spelled[0], true
+	}
+	return gk, false
+}
+
+// mapsAt reports whether the collector maps gk at version: a version serving
+// it, or no version or the internal one, which it maps to any serving one.
+func (c *Catalog) mapsAt(gk resourceid.GroupKind, version string) bool {
+	if version == "" || version == runtime.APIVersionInternal {
+		_, known := c.kinds[gk]
+		return known
+	}
+	return c.Serves(gk, version)
+}
+
+// listKind reports a kind the collector's discovery RESTMapper makes up: List
+// at a listed group version, or a served kind's name followed by List at a
+// version it maps the kind at. It maps them to resources no API serves, so
+// their owners are never found; namespaced is the scope it gives them, and
+// ambiguous that the kind before List is two resources'.
+func (c *Catalog) listKind(gk resourceid.GroupKind, version string) (namespaced, ambiguous, ok bool) {
+	if gk.Kind == "List" {
+		if version != "" && version != runtime.APIVersionInternal {
+			return false, false, c.groupVersions[schema.GroupVersion{Group: gk.Group, Version: version}]
+		}
+		for gv := range c.groupVersions {
+			if gv.Group == gk.Group {
+				return false, false, true
+			}
+		}
+		return false, false, false
+	}
+	base, isList := strings.CutSuffix(gk.Kind, "List")
+	if !isList || base == "" {
+		return false, false, false
+	}
+	listed := resourceid.GroupKind{Group: gk.Group, Kind: base}
+	if c.Ambiguous(listed) {
+		return false, true, true
+	}
+	k, known := c.kinds[listed]
+	return k.Namespaced, false, known && c.mapsAt(listed, version)
+}
+
+// Complete reports whether the discovery that built the catalog answered for
+// every API group. It describes that discovery, which can be minutes old: a
+// kind installed since may be served and still missing.
 func (c *Catalog) Complete() bool {
 	return c.complete
 }
