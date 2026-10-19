@@ -1062,7 +1062,7 @@ function gapReasonText(reason: string): string {
     case 'user_forbidden':
       return 'you may not list it'
     case 'kind_unknown':
-      return "this cluster doesn't serve its kind"
+      return "Radar's API discovery doesn't list its kind"
     case 'object_not_found':
       return "Radar doesn't have it yet"
     case 'cluster_connecting':
@@ -1080,7 +1080,7 @@ function gapReasonText(reason: string): string {
 // Manages lists.
 function membersNote(manages: OwnershipCoverage['manages'] | undefined): RelationshipNote | undefined {
   if (!manages) return undefined
-  if (manages.membership === 'remote') return { text: 'Its members are in another cluster.' }
+  if (manages.membership === 'remote') return { text: "Its destination isn't this cluster as far as Radar can tell, so its members aren't listed." }
   if (manages.membership === 'unreadable') {
     return manages.unavailable ? { text: `Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).` } : undefined
   }

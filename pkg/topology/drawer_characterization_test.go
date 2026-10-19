@@ -117,6 +117,10 @@ func charDrawer(t *testing.T, f *charFixture) []byte {
 	for _, o := range f.objects {
 		ref := o.ref()
 		rel := GetRelationshipsWithObject(o.resource, ref.Namespace, ref.Name, o.obj, topo, f.provider, f.dynamic, idx)
+		if rel == nil {
+			// REST answers ownership for an object the graph links to nothing.
+			rel = &Relationships{}
+		}
 		ApplyOwnership(rel, v, ownership.Observe(resourceid.Ref{Group: o.group, Kind: o.kind, Namespace: ref.Namespace, Name: ref.Name}, "", o.obj))
 		canonicalRefLists(reflect.ValueOf(rel))
 		records = append(records, record{Root: o.key(), Relationships: rel})

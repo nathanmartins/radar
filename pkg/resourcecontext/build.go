@@ -60,9 +60,11 @@ type Options struct {
 	// it.
 	Relationships *topology.Relationships
 
-	// Ownership, when set, answers the relationships' ownership from owner
+	// Ownership, when set, answers the relationships' Owner from owner
 	// references in place of the topology's manages edges, for fetched, the
-	// object Build describes. rel is never nil.
+	// object Build describes. Build reads only Owner and the owner state of
+	// rel.Ownership, so a host needn't search for children (see
+	// topology.ApplyOwner). rel is never nil.
 	Ownership func(rel *topology.Relationships, fetched ownership.Observation)
 
 	// RelIndex is the topology inverted-edge index. Pass a shared instance

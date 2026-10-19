@@ -2,10 +2,22 @@ package mcp
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/skyhook-io/radar/internal/k8s"
 	pkgauth "github.com/skyhook-io/radar/pkg/auth"
 	"github.com/skyhook-io/radar/pkg/ownership"
+	"github.com/skyhook-io/radar/pkg/resourcecontext"
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
@@ -47,5 +59,58 @@ func TestOwnershipAccessCannotTellWithoutTheClustersNamespaces(t *testing.T) {
 	a.clusterNamespaces = func(context.Context) []string { return nil }
 	if got := a.Read(resourceid.GroupKind{Kind: "Secret"}, ""); got != ownership.Undecided {
 		t.Errorf("Read(Secret) in any namespace without the namespace list = %v, want undecided", got)
+	}
+}
+
+// A resource context names only an object's owner, so building one asks no
+// permission question about the kinds the object's children could be: a Node
+// on a cluster serving many kinds Radar doesn't collect, for a user who may
+// read every namespace but none of those kinds.
+func TestResourceContextOwnerAsksNothingAboutChildren(t *testing.T) {
+	defer k8s.ResetTestState()
+	verbs := metav1.Verbs{"create", "delete", "get", "list", "patch", "update", "watch"}
+	things := &metav1.APIResourceList{GroupVersion: "things.example.io/v1"}
+	for i := range 20 {
+		things.APIResources = append(things.APIResources, metav1.APIResource{Name: fmt.Sprint("things", i), Kind: fmt.Sprint("Thing", i), Namespaced: true, Verbs: verbs})
+	}
+	fd := &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{}}
+	fd.Resources = []*metav1.APIResourceList{
+		{GroupVersion: "v1", APIResources: []metav1.APIResource{
+			{Name: "pods", Kind: "Pod", Namespaced: true, Verbs: verbs},
+			{Name: "nodes", Kind: "Node", Verbs: verbs},
+			{Name: "namespaces", Kind: "Namespace", Verbs: verbs},
+		}},
+		things,
+	}
+	restore, err := k8s.SetTestResourceDiscovery(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore()
+	node := &corev1.Node{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}, ObjectMeta: metav1.ObjectMeta{Name: "n1", UID: "uid-n1"}}
+	objects := []runtime.Object{node}
+	for i := range 10 {
+		objects = append(objects, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprint("ns-", i)}})
+	}
+	if err := k8s.InitTestResourceCache(fake.NewClientset(objects...)); err != nil {
+		t.Fatal(err)
+	}
+	prev := k8s.SetTestClient(&kubernetes.Clientset{})
+	defer k8s.SetTestClient(prev)
+	ctx := withTestUserPerms(t, "viewer", nil, nil)
+	var asked atomic.Int64
+	stubSubjectCanI(t, func(_ context.Context, _ kubernetes.Interface, _ string, _ []string, namespace, group, resource, verb string) (bool, error) {
+		if group == "things.example.io" {
+			asked.Add(1)
+		}
+		return group == "" && resource == "nodes", nil
+	})
+
+	rc := buildMCPResourceContext(ctx, node, "Node", "", "n1", resourcecontext.TierBasic, nil)
+	if rc == nil || rc.Owner != nil {
+		t.Fatalf("context = %+v; want one without an owner", rc)
+	}
+	if n := asked.Load(); n != 0 {
+		t.Errorf("building the context asked %d permission questions about kinds the Node's children could be", n)
 	}
 }

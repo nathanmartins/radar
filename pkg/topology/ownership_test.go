@@ -2,10 +2,12 @@ package topology
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/skyhook-io/radar/pkg/ownership"
 	"github.com/skyhook-io/radar/pkg/ownership/ownershiptest"
@@ -102,16 +104,16 @@ func TestApplyOwnershipKeepsStaleOwnershipOutOfManagement(t *testing.T) {
 }
 
 // An edge between an object and the owner its reference names through a
-// version the API no longer serves is ownership the collector can't act on,
+// version discovery doesn't list is ownership the collector can't map yet,
 // never management.
-func TestApplyOwnershipKeepsAnUnresolvableOwnerOutOfManagement(t *testing.T) {
+func TestApplyOwnershipKeepsAnUnmappedOwnerOutOfManagement(t *testing.T) {
 	w := ownershiptest.Fixture()
 	v := ownershipView(t, w, ownership.Unrestricted())
 	job, widget := idRef("batch", "Job", "alpha", "j1"), idRef("example.io", "Widget", "alpha", "w1")
 	rel := &Relationships{manageSources: []ResourceRef{refOf(widget)}}
 	ApplyOwnership(rel, v, fetched(t, w, job))
-	if rel.Owner != nil || rel.Ownership.OwnerState != "unresolvable" || len(rel.Managers) != 0 {
-		t.Errorf("owner %v state %q managers %v; want an unresolvable reference and no manager", rel.Owner, rel.Ownership.OwnerState, refsText(rel.Managers))
+	if rel.Owner != nil || rel.Ownership.OwnerState != "unknown" || rel.Ownership.OwnerReason != string(readreason.KindUnknown) || len(rel.Managers) != 0 {
+		t.Errorf("owner %v state %q (%s) managers %v; want an unknown reference (kind_unknown) and no manager", rel.Owner, rel.Ownership.OwnerState, rel.Ownership.OwnerReason, refsText(rel.Managers))
 	}
 	rel = &Relationships{manageTargets: []ResourceRef{refOf(job)}}
 	ApplyOwnership(rel, v, fetched(t, w, widget))
@@ -356,5 +358,143 @@ func TestApplyOwnershipCapsChildren(t *testing.T) {
 	ApplyOwnership(rel, ownershipView(t, b.World(), ownership.Unrestricted()), ownership.Observation{Ref: rs.Ref, APIVersion: rs.APIVersion, UID: rs.UID})
 	if len(rel.Children) != maxOwnershipRefs || !rel.Ownership.Children.Truncated || rel.Ownership.Children.Complete {
 		t.Fatalf("%d children, coverage %+v; want the first %d, marked truncated", len(rel.Children), rel.Ownership.Children, maxOwnershipRefs)
+	}
+}
+
+// searchCounter is a session that counts the reads that grow with what an
+// object owns or manages: searches for dependents and member lists.
+type searchCounter struct {
+	ownership.Session
+	searches int
+}
+
+func (s *searchCounter) OwnerCandidates(uid types.UID, domain ownership.Domain, limit int) ownership.CandidateRead {
+	s.searches++
+	return s.Session.OwnerCandidates(uid, domain, limit)
+}
+
+func (s *searchCounter) Inventory(manager resourceid.Ref) ownership.InventoryRead {
+	s.searches++
+	return s.Session.Inventory(manager)
+}
+
+func (s *searchCounter) Recorders(ref resourceid.Ref) ownership.RecorderRead {
+	s.searches++
+	return s.Session.Recorders(ref)
+}
+
+// ApplyOwner gives every object the owner ApplyOwnership gives it, and why
+// there is none, without searching for children or reading a member list.
+func TestApplyOwnerAnswersTheOwnerWithoutSearching(t *testing.T) {
+	w := ownershiptest.Fixture()
+	for _, o := range w.Objects {
+		full := &Relationships{}
+		ApplyOwnership(full, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, o.Ref))
+		s, err := ownershiptest.Scan(w).Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		counted := &searchCounter{Session: s}
+		owner := &Relationships{}
+		ApplyOwner(owner, ownership.NewView(counted, ownership.Unrestricted()), fetched(t, w, o.Ref))
+		if counted.searches != 0 {
+			t.Errorf("%v: the owner took %d searches for dependents or members", o.Ref, counted.searches)
+		}
+		if !reflect.DeepEqual(owner.Owner, full.Owner) {
+			t.Errorf("%v: owner %v, want %v", o.Ref, owner.Owner, full.Owner)
+		}
+		got, want := owner.Ownership, full.Ownership
+		if got.OwnerState != want.OwnerState || !reflect.DeepEqual(got.OwnerRef, want.OwnerRef) || got.OwnerReason != want.OwnerReason ||
+			got.Unavailable != want.Unavailable || got.Changed != want.Changed {
+			t.Errorf("%v: owner coverage %+v, want %+v", o.Ref, got, want)
+		}
+	}
+}
+
+// A manager is named only when the caller may read it and it still exists:
+// the graph's edge may come from a manager the caller can't see, or one
+// deleted since the graph was built.
+func TestApplyOwnershipNamesOnlyManagersTheCallerReads(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	cm := b.Add("", "ConfigMap", "alpha", "c")
+	app := b.Manager(ownership.ArgoApplication, "argocd", "app", ownership.MembersUnreadable, "alpha")
+	w := b.World()
+	for name, tc := range map[string]struct {
+		w      ownershiptest.World
+		access ownership.Access
+		want   int
+	}{
+		"readable":           {w, ownership.Unrestricted(), 1},
+		"withheld":           {w, denyKind{ownership.ArgoApplication}, 0},
+		"deleted since then": {ownershiptest.World{Resources: w.Resources, Objects: []ownershiptest.Object{cm}, Collection: w.Collection}, ownership.Unrestricted(), 0},
+	} {
+		rel := &Relationships{manageSources: []ResourceRef{refOf(app.Ref)}}
+		v := ownershipView(t, tc.w, tc.access)
+		ApplyOwnership(rel, v, fetched(t, tc.w, cm.Ref))
+		if err := v.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if len(rel.Managers) != tc.want {
+			t.Errorf("%s: managers %v, want %d", name, refsText(rel.Managers), tc.want)
+		}
+	}
+}
+
+type denyKind struct{ kind resourceid.GroupKind }
+
+func (d denyKind) Read(gk resourceid.GroupKind, _ string) ownership.Decision {
+	if gk == d.kind {
+		return ownership.Denied
+	}
+	return ownership.Allowed
+}
+func (denyKind) Namespaces() ([]string, bool) { return nil, true }
+func (denyKind) Everything() bool             { return false }
+func (denyKind) AllKindsIn(string) bool       { return false }
+
+// A Pod's Deployment is the one its ReplicaSet's controller reference names,
+// reached through the Pod's own controller reference.
+func TestApplyOwnershipNamesTheDeploymentOnlyThroughControllers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		podControlled, replicaSetControlled bool
+		want                                bool
+	}{
+		"both controllers":                            {true, true, true},
+		"a Pod the ReplicaSet doesn't control":        {false, true, false},
+		"a ReplicaSet the Deployment doesn't control": {true, false, false},
+	} {
+		b := ownershiptest.NewBuilder()
+		d := b.Add("apps", "Deployment", "alpha", "d")
+		rs := b.Add("apps", "ReplicaSet", "alpha", "d-1", d.OwnerRef(tc.replicaSetControlled))
+		pod := b.Add("", "Pod", "alpha", "d-1-a", rs.OwnerRef(tc.podControlled))
+		w := b.World()
+		rel := &Relationships{}
+		ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, pod.Ref))
+		if got := rel.Deployment != nil; got != tc.want {
+			t.Errorf("%s: deployment %v", name, rel.Deployment)
+		}
+		if rel.Owner == nil || refIdentity(*rel.Owner) != rs.Ref {
+			t.Errorf("%s: owner %v, want the ReplicaSet its only reference names", name, rel.Owner)
+		}
+	}
+}
+
+// A GitOps manager whose member list can't be read lists the members its
+// edges name once each, cut at the cap like a recorded list.
+func TestApplyOwnershipCapsLabelMembers(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	app := b.Manager(ownership.ArgoApplication, "argocd", "app", ownership.MembersUnreadable, "alpha")
+	rel := &Relationships{}
+	for i := range maxOwnershipRefs + 20 {
+		c := b.Add("", "ConfigMap", "alpha", fmt.Sprintf("c-%04d", i))
+		rel.manageTargets = append(rel.manageTargets, refOf(c.Ref), refOf(c.Ref))
+	}
+	w := b.World()
+	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, app.Ref))
+	if len(rel.Manages) != maxOwnershipRefs || !rel.Ownership.Manages.Truncated {
+		t.Fatalf("%d manages, coverage %+v; want the first %d, marked truncated", len(rel.Manages), rel.Ownership.Manages, maxOwnershipRefs)
+	}
+	if got := refsText(rel.Manages); len(slices.Compact(slices.Clone(got))) != len(got) {
+		t.Errorf("a member named by two edges is listed twice")
 	}
 }

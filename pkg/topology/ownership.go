@@ -34,45 +34,10 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		return
 	}
 	subject := fetched.Ref
-	v.Seed(fetched)
-	cov := clearOwnership(rel)
 	sources, targets := rel.manageSources, rel.manageTargets
-
-	owner := v.Owner(subject)
-	switch {
-	case owner.Subject.Access == ownership.Denied:
-		cov.Unavailable = string(readreason.UserForbidden)
+	cov, owner, answered := applyOwner(rel, v, fetched)
+	if !answered {
 		return
-	case owner.Subject.Access == ownership.Undecided:
-		cov.Unavailable = string(readreason.UserPermissionCheckFailed)
-		return
-	case owner.Subject.Read.State != ownership.Present:
-		cov.Unavailable = string(owner.Subject.Read.Gap.Reason)
-		if owner.Subject.Read.State == ownership.Absent {
-			cov.Unavailable = string(readreason.ObjectNotFound)
-		}
-		return
-	case owner.Subject.Read.Object.UID != fetched.UID:
-		cov.Changed = true
-		return
-	}
-
-	switch {
-	case owner.Several:
-		cov.OwnerState = "several"
-	case owner.Index >= 0 && owner.Resolution.State == ownership.OwnerFound:
-		ref := refOf(owner.Resolution.Ref)
-		rel.Owner = &ref
-	case owner.Index >= 0:
-		cov.OwnerState = owner.Resolution.State.String()
-		switch owner.Resolution.State {
-		case ownership.OwnerGone, ownership.OwnerReplaced, ownership.OwnerUnknown:
-			// The object's own reference names it; the user can read that.
-			cov.OwnerRef = namedOwner(owner.Subject.Read.Object, owner)
-		}
-		if owner.Resolution.State == ownership.OwnerUnknown {
-			cov.OwnerReason = string(owner.Resolution.Gap.Reason)
-		}
 	}
 	_, references := v.References(subject)
 	owners := map[resourceid.Ref]bool{}
@@ -83,7 +48,7 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		}
 	}
 	named := namedOwners(owner.Subject.Read.Object)
-	rel.Deployment = deploymentOf(v, subject, owner)
+	rel.Deployment = deploymentOf(v, subject)
 
 	children := v.Children(subject, 0)
 	cov.Children = ChildrenCoverage{Complete: children.Complete(), Truncated: children.Truncated, Narrowed: children.Narrowed}
@@ -109,6 +74,9 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		r := refIdentity(s)
 		switch {
 		case named[r] || slices.Contains(root.Chain, r):
+		case !present(v, r):
+			// The caller may not read the manager, or it is gone since the
+			// graph drew its edge.
 		case ownership.IsRecordingManager(r.GroupKind()) || settled(root):
 			rel.Managers = appendResourceRef(rel.Managers, s)
 		}
@@ -139,19 +107,80 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		// are all there is.
 	}
 	gitops := ownership.IsRecordingManager(subject.GroupKind())
+	listed := map[resourceid.Ref]bool{}
 	for _, t := range targets {
 		r := refIdentity(t)
-		if isChild[r] {
+		if isChild[r] || listed[r] {
 			continue
 		}
 		target, _ := v.References(r)
 		if !target.Present() || namedOwners(target.Read.Object)[subject] {
 			continue
 		}
-		if tr := v.ControllerRoot(r); !slices.Contains(tr.Chain, subject) && (gitops || settled(tr)) {
-			rel.Manages = appendResourceRef(rel.Manages, t)
+		if tr := v.ControllerRoot(r); slices.Contains(tr.Chain, subject) || !gitops && !settled(tr) {
+			continue
+		}
+		// A GitOps manager's coverage can say its list was cut short.
+		if cov.Manages != nil && len(rel.Manages) == maxOwnershipRefs {
+			cov.Manages.Truncated = true
+			break
+		}
+		listed[r] = true
+		rel.Manages = append(rel.Manages, t)
+	}
+}
+
+// ApplyOwner answers only rel's Owner, and why there is none, from v: what a
+// resource context reads, which needs no search for children and no member
+// list. The rest of rel's ownership is cleared and left unanswered.
+func ApplyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observation) {
+	if rel != nil && v != nil {
+		applyOwner(rel, v, fetched)
+	}
+}
+
+// applyOwner clears rel's ownership and answers its Owner, reporting whether
+// the subject was read as fetched, so the rest can be answered.
+func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observation) (*OwnershipCoverage, ownership.OwnerAnswer, bool) {
+	v.Seed(fetched)
+	cov := clearOwnership(rel)
+	owner := v.Owner(fetched.Ref)
+	switch {
+	case owner.Subject.Access == ownership.Denied:
+		cov.Unavailable = string(readreason.UserForbidden)
+		return cov, owner, false
+	case owner.Subject.Access == ownership.Undecided:
+		cov.Unavailable = string(readreason.UserPermissionCheckFailed)
+		return cov, owner, false
+	case owner.Subject.Read.State != ownership.Present:
+		cov.Unavailable = string(owner.Subject.Read.Gap.Reason)
+		if owner.Subject.Read.State == ownership.Absent {
+			cov.Unavailable = string(readreason.ObjectNotFound)
+		}
+		return cov, owner, false
+	case owner.Subject.Read.Object.UID != fetched.UID:
+		cov.Changed = true
+		return cov, owner, false
+	}
+
+	switch {
+	case owner.Several:
+		cov.OwnerState = "several"
+	case owner.Index >= 0 && owner.Resolution.State == ownership.OwnerFound:
+		ref := refOf(owner.Resolution.Ref)
+		rel.Owner = &ref
+	case owner.Index >= 0:
+		cov.OwnerState = owner.Resolution.State.String()
+		switch owner.Resolution.State {
+		case ownership.OwnerGone, ownership.OwnerReplaced, ownership.OwnerUnknown:
+			// The object's own reference names it; the user can read that.
+			cov.OwnerRef = namedOwner(owner.Subject.Read.Object, owner)
+		}
+		if owner.Resolution.State == ownership.OwnerUnknown {
+			cov.OwnerReason = string(owner.Resolution.Gap.Reason)
 		}
 	}
+	return cov, owner, true
 }
 
 // namedOwners are the coordinates o's owner references name, found or not,
@@ -168,6 +197,12 @@ func namedOwners(o ownership.Observation) map[resourceid.Ref]bool {
 		named[resourceid.Ref{Group: gv.Group, Kind: r.Kind, Name: r.Name}] = true
 	}
 	return named
+}
+
+// present reports whether the caller reads ref as it exists now.
+func present(v *ownership.View, ref resourceid.Ref) bool {
+	subject, _ := v.References(ref)
+	return subject.Present()
 }
 
 // settled reports whether a controller walk is known to its end: it reached
@@ -208,17 +243,19 @@ func clearOwnership(rel *Relationships) *OwnershipCoverage {
 	return rel.Ownership
 }
 
-// deploymentOf is the Deployment controlling a Pod's ReplicaSet.
-func deploymentOf(v *ownership.View, subject resourceid.Ref, owner ownership.OwnerAnswer) *ResourceRef {
-	replicaSet := resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"}
-	if subject.GroupKind() != (resourceid.GroupKind{Kind: "Pod"}) || owner.Index < 0 || owner.Resolution.State != ownership.OwnerFound || owner.Resolution.Ref.GroupKind() != replicaSet {
+// deploymentOf is the Deployment controlling a Pod's ReplicaSet, read up
+// their controller references: a reference that isn't a controller's makes
+// neither the ReplicaSet nor its Deployment the Pod's workload.
+func deploymentOf(v *ownership.View, subject resourceid.Ref) *ResourceRef {
+	if subject.GroupKind() != (resourceid.GroupKind{Kind: "Pod"}) {
 		return nil
 	}
-	up := v.Owner(owner.Resolution.Ref)
-	if up.Index < 0 || up.Resolution.State != ownership.OwnerFound || up.Resolution.Ref.GroupKind() != (resourceid.GroupKind{Group: "apps", Kind: "Deployment"}) {
+	chain := v.ControllerRoot(subject).Chain
+	if len(chain) < 3 || chain[1].GroupKind() != (resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"}) ||
+		chain[2].GroupKind() != (resourceid.GroupKind{Group: "apps", Kind: "Deployment"}) {
 		return nil
 	}
-	ref := refOf(up.Resolution.Ref)
+	ref := refOf(chain[2])
 	return &ref
 }
 

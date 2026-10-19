@@ -3144,7 +3144,50 @@
   },
   {
     "root": "networking.k8s.io|NetworkPolicy|shop|default-deny",
-    "relationships": null
+    "relationships": {
+      "ownership": {
+        "children": {
+          "complete": false,
+          "notChecked": [
+            {
+              "kind": "Endpoints",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            },
+            {
+              "group": "apps",
+              "kind": "ControllerRevision",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            },
+            {
+              "group": "coordination.k8s.io",
+              "kind": "Lease",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            },
+            {
+              "group": "discovery.k8s.io",
+              "kind": "EndpointSlice",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            },
+            {
+              "group": "resource.k8s.io",
+              "kind": "ResourceClaim",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            },
+            {
+              "group": "resource.k8s.io",
+              "kind": "ResourceClaimTemplate",
+              "namespace": "shop",
+              "reason": "radar_kind_not_collected"
+            }
+          ]
+        }
+      }
+    }
   },
   {
     "root": "policy|PodDisruptionBudget|shop|web",

@@ -41,10 +41,17 @@ func OwnershipSource() ownership.Source { return ownershipSource }
 // changed between the view's reads, is worth one more try; caches replaced or
 // not ready leave the answer unavailable, as does a retry that fails too.
 func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
-	answerOwnership(ownershipSource, rel, fetched, access)
+	answerOwnership(ownershipSource, topology.ApplyOwnership, rel, fetched, access)
 }
 
-func answerOwnership(source ownership.Source, rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
+// AnswerOwner is AnswerOwnership for rel's Owner alone, which is all a
+// resource context reads: it searches for no children and reads no member
+// list, so it costs a few reads however much the object owns.
+func AnswerOwner(rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
+	answerOwnership(ownershipSource, topology.ApplyOwner, rel, fetched, access)
+}
+
+func answerOwnership(source ownership.Source, apply func(*topology.Relationships, *ownership.View, ownership.Observation), rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
 	reason := readreason.KindSyncPending
 	for range 2 {
 		session, err := source.Begin()
@@ -53,7 +60,7 @@ func answerOwnership(source ownership.Source, rel *topology.Relationships, fetch
 			return
 		}
 		v := ownership.NewView(session, access(session.Catalog()))
-		topology.ApplyOwnership(rel, v, fetched)
+		apply(rel, v, fetched)
 		err = v.Validate()
 		switch {
 		case err == nil:

@@ -70,7 +70,7 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 		t.Run(tc.name, func(t *testing.T) {
 			tc.source.t = t
 			rel := &topology.Relationships{}
-			answerOwnership(tc.source, rel, fetched, unrestricted)
+			answerOwnership(tc.source, topology.ApplyOwnership, rel, fetched, unrestricted)
 			if tc.source.begun != tc.begun {
 				t.Errorf("began %d sessions, want %d", tc.source.begun, tc.begun)
 			}

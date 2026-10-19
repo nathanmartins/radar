@@ -1321,7 +1321,7 @@ func buildMCPResourceContextWithStaleChecks(ctx context.Context, obj runtime.Obj
 		opts.DynamicProv = dyn
 	}
 	opts.Ownership = func(rel *topology.Relationships, fetched ownership.Observation) {
-		k8s.AnswerOwnership(rel, fetched, func(c *ownership.Catalog) ownership.Access { return ownershipAccess(ctx, c) })
+		k8s.AnswerOwner(rel, fetched, func(c *ownership.Catalog) ownership.Access { return ownershipAccess(ctx, c) })
 	}
 
 	return resourcecontext.Build(ctx, obj, opts)

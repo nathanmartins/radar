@@ -176,10 +176,10 @@ describe('RelatedResourcesSection ownership', () => {
     expect(noList).not.toContain('Couldn&#x27;t read')
   })
 
-  it('says a remote manager applies to another cluster', () => {
+  it("says a remote manager's members aren't listed", () => {
     const html = renderToString(<RelatedResourcesSection relationships={{ ownership: { children: { complete: true }, manages: { membership: 'remote' } } }} />)
     expect(html).toContain('Manages')
-    expect(html).toContain('Its members are in another cluster.')
+    expect(html).toContain("Its destination isn&#x27;t this cluster as far as Radar can tell, so its members aren&#x27;t listed.")
   })
 
   it('counts recorded members it does not list', () => {
