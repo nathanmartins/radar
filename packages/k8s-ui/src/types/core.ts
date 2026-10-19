@@ -688,7 +688,7 @@ export interface Relationships {
   resourceClaims?: ResourceRef[]    // For Pods: DRA ResourceClaims (direct + template-generated)
 }
 
-/** A kind, in one namespace or all, Radar couldn't read; reason is a readreason code. */
+/** A kind Radar couldn't read, in namespace or (without one) in several or all of them; reason is a readreason code. */
 export interface OwnershipGap {
   group?: string
   kind?: string

@@ -61,6 +61,10 @@ func (a *requestAccess) Read(kind resourceid.GroupKind, namespace string) owners
 func (a *requestAccess) read(kind resourceid.GroupKind, namespace string) ownership.Decision {
 	resource, namespaced, known := a.resource(kind)
 	switch {
+	case !known && a.catalog.Ambiguous(kind):
+		// Two resources serve the kind, so no one grant decides it. Denied
+		// would drop a gap on it, and an answer would claim to be complete.
+		return ownership.Undecided
 	case !known:
 		// Without its resource there is nothing to check, so nothing to allow.
 		return ownership.Denied

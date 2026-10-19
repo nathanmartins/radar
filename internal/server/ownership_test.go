@@ -161,6 +161,8 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 	catalog := ownership.NewCatalog([]ownership.ServedResource{
 		{Group: "projectcalico.org", Version: "v3", Kind: "NetworkPolicy", Resource: "networkpolicies", Namespaced: true, Verbs: gc},
 		{Group: "crd.projectcalico.org", Version: "v1", Kind: "NetworkPolicy", Resource: "networkpolicies", Namespaced: true, Verbs: gc},
+		{Group: "aggregated.io", Version: "v1", Kind: "Foo", Resource: "foos", Namespaced: true, Verbs: gc},
+		{Group: "aggregated.io", Version: "v1", Kind: "Foo", Resource: "otherfoos", Namespaced: true, Verbs: gc},
 	}, true)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{Username: "alice"}))
@@ -178,6 +180,9 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 		{resourceid.GroupKind{Kind: "Node"}, "", ownership.Denied},
 		{resourceid.GroupKind{Kind: "PersistentVolume"}, "", ownership.Allowed},
 		{resourceid.GroupKind{Group: "example.io", Kind: "Unknown"}, "alpha", ownership.Denied},
+		// No one grant decides a kind two resources serve.
+		{resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}, "alpha", ownership.Undecided},
+		{resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}, "", ownership.Undecided},
 	} {
 		if got := a.Read(tc.kind, tc.namespace); got != tc.want {
 			t.Errorf("Read(%v, %q) = %v, want %v", tc.kind, tc.namespace, got, tc.want)

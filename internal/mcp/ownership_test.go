@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/skyhook-io/radar/internal/k8s"
 	pkgauth "github.com/skyhook-io/radar/pkg/auth"
 	"github.com/skyhook-io/radar/pkg/ownership"
+	"github.com/skyhook-io/radar/pkg/ownership/ownershiptest"
 	"github.com/skyhook-io/radar/pkg/resourcecontext"
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
@@ -112,5 +114,35 @@ func TestResourceContextOwnerAsksNothingAboutChildren(t *testing.T) {
 	}
 	if n := asked.Load(); n != 0 {
 		t.Errorf("building the context asked %d permission questions about kinds the Node's children could be", n)
+	}
+}
+
+// A kind two resources of one group serve can't be searched for children,
+// and no one grant decides whether the caller may read it, so the answer
+// keeps the gap rather than claiming to be complete.
+func TestOwnershipAccessKeepsAGapOnAnAmbiguousKind(t *testing.T) {
+	t.Cleanup(func() { getPermCache().Invalidate() })
+	perms := &pkgauth.UserPermissions{AllowedNamespaces: []string{"alpha"}}
+	perms.SetCanI("get", "apps", "deployments", "alpha", true)
+	getPermCache().Set("hana", nil, perms)
+	ctx := pkgauth.ContextWithUser(context.Background(), &pkgauth.User{Username: "hana"})
+	b := ownershiptest.NewBuilder()
+	owner := b.Add("apps", "Deployment", "alpha", "parent")
+	w := b.World()
+	for _, plural := range []string{"foos", "otherfoos"} {
+		w.Resources = append(w.Resources, ownership.ServedResource{Group: "aggregated.io", Version: "v1", Kind: "Foo", Resource: plural, Namespaced: true, Verbs: []string{"delete", "list", "watch"}})
+	}
+	s, err := ownershiptest.Scan(w).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foo := resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}
+	a := ownershipAccess(ctx, s.Catalog())
+	if got := a.Read(foo, "alpha"); got != ownership.Undecided {
+		t.Fatalf("Read(Foo, alpha) = %v, want undecided", got)
+	}
+	got := ownership.NewView(s, a).Children(owner.Ref, 0)
+	if got.Complete() || !slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == foo }) {
+		t.Fatalf("children = %+v; want the ambiguous kind left unread", got)
 	}
 }

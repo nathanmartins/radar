@@ -51,10 +51,7 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 	rel.Deployment = deploymentOf(v, subject)
 
 	children := v.Children(subject, 0)
-	cov.Children = ChildrenCoverage{Complete: children.Complete(), Truncated: children.Truncated, Narrowed: children.Narrowed}
-	for _, g := range children.Gaps {
-		cov.Children.NotChecked = append(cov.Children.NotChecked, OwnershipGap{Group: g.Kind.Group, Kind: g.Kind.Kind, Namespace: g.Namespace, Reason: string(g.Reason)})
-	}
+	cov.Children = ChildrenCoverage{Complete: children.Complete(), Truncated: children.Truncated, Narrowed: children.Narrowed, NotChecked: notChecked(children.Gaps)}
 	isChild := map[resourceid.Ref]bool{}
 	for _, c := range children.Children {
 		isChild[c.Ref] = true
@@ -181,6 +178,33 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 		}
 	}
 	return cov, owner, true
+}
+
+// notChecked lists the kinds a search for children couldn't read, once per
+// kind and reason. A search across a caller's namespaces leaves a kind Radar
+// doesn't collect unread in each of them, which would otherwise list the kind
+// once per namespace: a user with a hundred namespaces opening a Node would
+// get every uncollected kind a hundred times.
+func notChecked(gaps []ownership.Gap) []OwnershipGap {
+	type key struct{ group, kind, reason string }
+	namespaces := map[key][]string{}
+	var order []key
+	for _, g := range gaps {
+		k := key{group: g.Kind.Group, kind: g.Kind.Kind, reason: string(g.Reason)}
+		if _, seen := namespaces[k]; !seen {
+			order = append(order, k)
+		}
+		namespaces[k] = append(namespaces[k], g.Namespace)
+	}
+	var out []OwnershipGap
+	for _, k := range order {
+		g := OwnershipGap{Group: k.group, Kind: k.kind, Reason: k.reason}
+		if ns := namespaces[k]; len(ns) == 1 {
+			g.Namespace = ns[0]
+		}
+		out = append(out, g)
+	}
+	return out
 }
 
 // namedOwners are the coordinates o's owner references name, found or not,

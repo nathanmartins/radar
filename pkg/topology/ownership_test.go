@@ -498,3 +498,49 @@ func TestApplyOwnershipCapsLabelMembers(t *testing.T) {
 		t.Errorf("a member named by two edges is listed twice")
 	}
 }
+
+// namespacesOnly may read the listed namespaces and every cluster-scoped kind.
+type namespacesOnly []string
+
+func (n namespacesOnly) Read(_ resourceid.GroupKind, namespace string) ownership.Decision {
+	if namespace == "" || slices.Contains(n, namespace) {
+		return ownership.Allowed
+	}
+	return ownership.Denied
+}
+func (n namespacesOnly) Namespaces() ([]string, bool) { return n, false }
+func (namespacesOnly) Everything() bool               { return false }
+func (namespacesOnly) AllKindsIn(string) bool         { return false }
+
+// A cluster-scoped owner's children are searched in each of the caller's
+// namespaces; a kind Radar doesn't collect is listed once, not once per
+// namespace, while a namespaced owner's gaps keep their namespace.
+func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	node := b.Add("", "Node", "", "n1")
+	b.Add("", "Pod", "alpha", "static-n1", node.OwnerRef(true))
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web-1")
+	w := b.World()
+	widgets := resourceid.GroupKind{Group: "example.io", Kind: "Widget"}
+	w.Collection[widgets] = ownershiptest.Collection{State: ownershiptest.NotCollected}
+	namespaces := namespacesOnly{"alpha"}
+	for i := range 20 {
+		namespaces = append(namespaces, fmt.Sprint("team-", i))
+	}
+	rel := &Relationships{}
+	ApplyOwnership(rel, ownershipView(t, w, namespaces), ownership.Observation{Ref: node.Ref, APIVersion: node.APIVersion, UID: node.UID})
+	var unread []OwnershipGap
+	for _, g := range rel.Ownership.Children.NotChecked {
+		if g.Group == widgets.Group && g.Kind == widgets.Kind {
+			unread = append(unread, g)
+		}
+	}
+	if len(unread) != 1 || unread[0].Namespace != "" || unread[0].Reason != string(readreason.RadarKindNotCollected) {
+		t.Fatalf("Widget gaps on the Node = %+v; want one, across the caller's namespaces", unread)
+	}
+	rel = &Relationships{}
+	ApplyOwnership(rel, ownershipView(t, w, namespaces), ownership.Observation{Ref: rs.Ref, APIVersion: rs.APIVersion, UID: rs.UID})
+	if !slices.Contains(rel.Ownership.Children.NotChecked, OwnershipGap{Group: widgets.Group, Kind: widgets.Kind, Namespace: "alpha", Reason: string(readreason.RadarKindNotCollected)}) {
+		t.Fatalf("a namespaced owner's gaps = %+v; want Widget in alpha", rel.Ownership.Children.NotChecked)
+	}
+}

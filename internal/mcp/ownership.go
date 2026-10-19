@@ -53,6 +53,10 @@ func (a *mcpAccess) read(kind resourceid.GroupKind, namespace string) ownership.
 		resource, namespaced = k.Resource, k.Namespaced
 	}
 	switch {
+	case resource == "" && a.catalog.Ambiguous(kind):
+		// Two resources serve the kind, so no one grant decides it. Denied
+		// would drop a gap on it, and an answer would claim to be complete.
+		return ownership.Undecided
 	case resource == "":
 		// Without its resource there is nothing to check, so nothing to allow.
 		return ownership.Denied

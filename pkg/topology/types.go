@@ -604,9 +604,10 @@ type ChildrenCoverage struct {
 	Narrowed bool `json:"narrowed,omitempty"`
 }
 
-// OwnershipGap is a kind, in one namespace or every one, that Radar couldn't
-// read, with a readreason code saying why. An empty Kind stands for kinds
-// discovery didn't list.
+// OwnershipGap is a kind that Radar couldn't read, with a readreason code
+// saying why: in Namespace, or with no Namespace in several namespaces, every
+// one, or the cluster for a cluster-scoped kind. An empty Kind stands for
+// kinds discovery didn't list.
 type OwnershipGap struct {
 	Group     string `json:"group,omitempty"`
 	Kind      string `json:"kind,omitempty"`
