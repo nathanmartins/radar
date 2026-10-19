@@ -159,17 +159,18 @@ func (s *session) typedCandidates(q *search, b resourceid.Builtin) {
 }
 
 func (s *session) dynamicCandidates(q *search, kind ownership.Kind) {
-	s.dynamicIndexed(q, kind, k8score.OwnerUIDIndex, q.uid, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
+	s.dynamicIndexed(q, kind, k8score.OwnerUIDIndex, []string{q.uid}, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
 		q.add(kind.GroupKind, gvr.GroupVersion().String(), u, u.GetNamespace(), u.GetName())
 	})
 }
 
-// dynamicIndexed reads index[key] for a dynamic kind across q's domain,
-// handing each object found to found and recording a gap for each part of the
-// domain it can't read. Every watched version the catalog serves is read, and
+// dynamicIndexed reads the objects index files under any of keys for a
+// dynamic kind across q's domain, each store once for all the keys, handing
+// each object found to found and recording a gap for each part of the domain
+// it can't read. Every watched version the catalog serves is read, and
 // versions that disagree leave their namespace unread: one of their watches
 // hasn't caught up.
-func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index, key string, found func(schema.GroupVersionResource, *unstructured.Unstructured)) {
+func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index string, keys []string, found func(schema.GroupVersionResource, *unstructured.Unstructured)) {
 	gk := kind.GroupKind
 	if s.caches.Dynamic == nil {
 		q.gapEverywhere(gk, kind.Namespaced, readreason.RadarKindNotCollected)
@@ -191,7 +192,7 @@ func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index, key stri
 	readVersion := func(gvr schema.GroupVersionResource, namespace string) ([]*unstructured.Unstructured, bool) {
 		cw, seen := clusterWide[gvr]
 		if !seen {
-			if objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, "", index, key); ok {
+			if objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, "", index, keys...); ok {
 				s.record(gvr, "", server)
 				cw = &clusterWideRead{all: objs}
 			}
@@ -212,7 +213,7 @@ func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index, key stri
 		if namespace == "" {
 			return nil, false
 		}
-		objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, namespace, index, key)
+		objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, namespace, index, keys...)
 		if ok {
 			s.record(gvr, namespace, server)
 		}

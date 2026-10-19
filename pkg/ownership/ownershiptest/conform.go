@@ -254,7 +254,7 @@ func differingRecorders(a, b ownership.RecorderRead) []resourceid.Ref {
 }
 
 func sameRecorders(a, b ownership.RecorderRead) bool {
-	if !slices.Equal(a.Gaps, b.Gaps) || !slices.Equal(a.Elsewhere, b.Elsewhere) || !slices.Equal(a.Unreadable, b.Unreadable) || len(a.Recorders) != len(b.Recorders) {
+	if a.Unnamed != b.Unnamed || !slices.Equal(a.Gaps, b.Gaps) || !slices.Equal(a.Elsewhere, b.Elsewhere) || !slices.Equal(a.Unreadable, b.Unreadable) || len(a.Recorders) != len(b.Recorders) {
 		return false
 	}
 	for i := range a.Recorders {
@@ -274,7 +274,7 @@ func describeRecorders(r ownership.RecorderRead) string {
 	for _, m := range r.Recorders {
 		refs = append(refs, describeObservation(m))
 	}
-	return fmt.Sprintf("recorders [%s] elsewhere %v unreadable %v gaps %+v", strings.Join(refs, ", "), r.Elsewhere, r.Unreadable, r.Gaps)
+	return fmt.Sprintf("recorders [%s] elsewhere %v unreadable %v unnamed %v gaps %+v", strings.Join(refs, ", "), r.Elsewhere, r.Unreadable, r.Unnamed, r.Gaps)
 }
 
 func describeInventory(r ownership.InventoryRead) string {

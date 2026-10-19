@@ -185,35 +185,39 @@ func childRefs(a ownership.ChildrenAnswer) []string {
 
 func TestViewChildrenResolveToTheOwnersCurrentIncarnation(t *testing.T) {
 	w := ownershiptest.Fixture()
+	unlistedWidget := []ownership.Gap{{Kind: resourceid.GroupKind{Group: "example.io", Kind: "Widget"}, Reason: readreason.KindUnknown}}
 	for _, tc := range []struct {
 		name   string
 		access ownership.Access
 		owner  resourceid.Ref
 		want   []string
 		narrow bool
+		// gaps are the references to the owner Radar can't resolve.
+		gaps []ownership.Gap
 	}{
 		// The stray Pod in beta names the ReplicaSet's UID but resolves in its
 		// own namespace; wrong-coordinates names the UID under another kind.
 		{"a ReplicaSet's Pods", ownership.Unrestricted(), at("apps", "ReplicaSet", "alpha", "web-1"),
-			[]string{"Pod alpha/web-1-a controller=true", "Pod alpha/web-1-b controller=true"}, false},
+			[]string{"Pod alpha/web-1-a controller=true", "Pod alpha/web-1-b controller=true"}, false, nil},
 		{"a controlled and a plain child", ownership.Unrestricted(), at("apps", "Deployment", "alpha", "web"),
-			[]string{"ReplicaSet.apps alpha/web-1 controller=true", "Widget.example.io alpha/w1 controller=false"}, false},
-		// j1 names a version the API doesn't serve; s1's kind can't be watched;
-		// n2 is cluster-scoped, which a namespaced owner can't own.
+			[]string{"ReplicaSet.apps alpha/web-1 controller=true", "Widget.example.io alpha/w1 controller=false"}, false, nil},
+		// s1's kind can't be watched; n2 is cluster-scoped, which a namespaced
+		// owner can't own. j1 names a version discovery doesn't list, which the
+		// collector retries, so j1 may yet be a child.
 		{"through any served version", ownership.Unrestricted(), at("example.io", "Widget", "alpha", "w1"),
-			[]string{"ConfigMap alpha/shared controller=false", "ConfigMap alpha/versioned controller=false"}, false},
-		{"none for an earlier incarnation's dependent", ownership.Unrestricted(), at("apps", "ReplicaSet", "alpha", "web-old"), nil, false},
-		{"none from an Event", ownership.Unrestricted(), at("", "Pod", "alpha", "web-1-a"), nil, false},
+			[]string{"ConfigMap alpha/shared controller=false", "ConfigMap alpha/versioned controller=false"}, false, unlistedWidget},
+		{"none for an earlier incarnation's dependent", ownership.Unrestricted(), at("apps", "ReplicaSet", "alpha", "web-old"), nil, false, nil},
+		{"none from an Event", ownership.Unrestricted(), at("", "Pod", "alpha", "web-1-a"), nil, false, nil},
 		{"a cluster-scoped owner's, anywhere", ownership.Unrestricted(), at("", "Node", "", "n1"),
-			[]string{"ClusterWidget.example.io cw1 controller=false", "Gadget.example.io beta/g1 controller=true"}, false},
+			[]string{"ClusterWidget.example.io cw1 controller=false", "Gadget.example.io beta/g1 controller=true"}, false, nil},
 		{"only those the caller may read", access{namespaces: []string{"alpha"}}, at("", "Node", "", "n1"),
-			[]string{"ClusterWidget.example.io cw1 controller=false"}, true},
-		{"none of a kind the caller may not read", access{denied: []resourceid.GroupKind{configMaps}}, at("example.io", "Widget", "alpha", "w1"), nil, true},
+			[]string{"ClusterWidget.example.io cw1 controller=false"}, true, nil},
+		{"none of a kind the caller may not read", access{denied: []resourceid.GroupKind{configMaps}}, at("example.io", "Widget", "alpha", "w1"), nil, true, unlistedWidget},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := view(t, w, tc.access).Children(tc.owner, 0)
-			if !got.Subject.Present() || !got.Complete() {
-				t.Fatalf("Children = %+v", got)
+			if !got.Subject.Present() || !slices.Equal(got.Gaps, tc.gaps) || got.Complete() != (len(tc.gaps) == 0) {
+				t.Fatalf("Children = %+v; want gaps %v", got, tc.gaps)
 			}
 			if refs := childRefs(got); !slices.Equal(refs, tc.want) || got.Narrowed != tc.narrow {
 				t.Fatalf("Children = %q narrowed=%v; want %q narrowed=%v", refs, got.Narrowed, tc.want, tc.narrow)

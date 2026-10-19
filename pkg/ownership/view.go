@@ -280,18 +280,27 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	candidates, unread, undecided := v.candidates(found, owner.UID, domain)
 	// Saying a check failed would say a child may be there.
 	a.Narrowed = a.Narrowed || undecided
+	// unresolved are the gaps of references to the owner's UID that Radar
+	// can't resolve: the collector retries them, so their objects may be
+	// children.
+	var unresolved []Gap
 	for _, c := range candidates {
 		child, names := Child{Observation: c}, false
+		var unknown []Gap
 		for _, r := range c.OwnerReferences {
 			if r.UID != owner.UID {
 				continue
 			}
-			if res := v.resolve(c, r); res.State == OwnerFound && res.Ref == ref {
+			switch res := v.resolve(c, r); {
+			case res.State == OwnerFound && res.Ref == ref:
 				names = true
 				child.Controller = child.Controller || isController(r)
+			case res.State == OwnerUnknown:
+				unknown = append(unknown, res.Gap)
 			}
 		}
 		if !names {
+			unresolved = append(unresolved, unknown...)
 			continue
 		}
 		if limit > 0 && len(a.Children) == limit {
@@ -305,15 +314,16 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			a.Gaps = append(a.Gaps, g)
 		}
 	}
-	if len(unread) > 0 {
-		// The caller may read these: the view read them for it.
-		a.Gaps = append(a.Gaps, unread...)
-		slices.SortFunc(a.Gaps, compareGaps)
-		a.Gaps = slices.Compact(a.Gaps)
-	}
+	// The caller may read these: the view read them for it.
+	a.Gaps = append(a.Gaps, unread...)
 	if !searched {
-		v.searched[owner.UID] = searchScope{domain: domain, gaps: a.Gaps}
+		v.searched[owner.UID] = searchScope{domain: domain, gaps: slices.Clone(a.Gaps)}
 	}
+	// An unresolved reference doesn't leave a kind unsearched, so it excuses
+	// no object the search should have found.
+	a.Gaps = append(a.Gaps, unresolved...)
+	slices.SortFunc(a.Gaps, compareGaps)
+	a.Gaps = slices.Compact(a.Gaps)
 	return a
 }
 

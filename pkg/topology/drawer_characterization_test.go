@@ -70,7 +70,6 @@ func charSource(t *testing.T, f *charFixture) ownership.Source {
 	dynamicCache, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{
 		DynamicClient: client,
 		Discovery:     disc,
-		Indexers:      cachesource.MembershipIndexers(),
 	})
 	if err != nil {
 		t.Fatal(err)
