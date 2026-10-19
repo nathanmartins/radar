@@ -2558,6 +2558,9 @@
   {
     "root": "helm.toolkit.fluxcd.io|HelmRelease|shop|redis",
     "relationships": {
+      "managers": [
+        {"kind": "Kustomization", "namespace": "flux-system", "name": "shop", "group": "kustomize.toolkit.fluxcd.io"}
+      ],
       "manages": [
         {"kind": "Service", "namespace": "shop", "name": "redis"},
         {"kind": "DaemonSet", "namespace": "shop", "name": "redis-exporter", "group": "apps"},
@@ -2978,6 +2981,9 @@
   {
     "root": "kustomize.toolkit.fluxcd.io|Kustomization|flux-system|shop",
     "relationships": {
+      "managers": [
+        {"kind": "Kustomization", "namespace": "flux-system", "name": "platform", "group": "kustomize.toolkit.fluxcd.io"}
+      ],
       "manages": [
         {"kind": "Deployment", "namespace": "shop", "name": "cart", "group": "apps"},
         {"kind": "HelmRelease", "namespace": "shop", "name": "redis", "group": "helm.toolkit.fluxcd.io"}
@@ -3092,6 +3098,9 @@
   {
     "root": "networking.k8s.io|Ingress|shop|web",
     "relationships": {
+      "managers": [
+        {"kind": "Application", "namespace": "argocd", "name": "shop", "group": "argoproj.io"}
+      ],
       "ownership": {
         "children": {
           "complete": false,

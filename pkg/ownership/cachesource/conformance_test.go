@@ -106,6 +106,11 @@ func viewAnswers(v *ownership.View, ref resourceid.Ref) []any {
 		}
 		out = append(out, members.Membership, members.Missing, members.Withheld, members.Unknown, members.Gaps)
 	}
+	recorders := v.Recorders(ref)
+	for _, m := range recorders.Recorders {
+		out = append(out, ident(m))
+	}
+	out = append(out, recorders.Unreadable, recorders.Unnamed, recorders.Gaps)
 	return out
 }
 

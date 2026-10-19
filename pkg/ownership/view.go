@@ -16,7 +16,8 @@ import (
 // It captures each object once, whether it read the object or found it
 // searching an owner's dependents, and answers every question from that
 // capture, so its answers agree with each other even while the cluster
-// changes. It searches each owner's dependents and reads each manager's
+// changes; Recorders says where its answers about different objects fall
+// short of that. It searches each owner's dependents and reads each manager's
 // member list at most once. An object it first reads after a search that
 // should have found it means the cluster changed in a way one capture can't
 // reconcile, and Validate says so. It never reads an object the caller may
@@ -33,7 +34,25 @@ type View struct {
 	searches    map[resourceid.Ref]CandidateRead
 	searched    map[types.UID]searchScope
 	inventories map[resourceid.Ref]InventoryRead
-	changed     bool
+	// recorders holds the answer for each object Recorders was asked about,
+	// and recorderSearches the search behind it.
+	recorders        map[resourceid.Ref]RecordersAnswer
+	recorderSearches map[resourceid.Ref]recorderSearch
+	// readable holds, for each manager the caller may read that a search or
+	// an inventory read, whether its member list could be read.
+	readable map[resourceid.Ref]bool
+	// memberSets holds the members of each inventory checked against a
+	// search.
+	memberSets map[resourceid.Ref]map[resourceid.Ref]bool
+	changed    bool
+}
+
+// recorderSearch is one search for the managers recording an object, with
+// the managers the caller may read it found as recorders and as unreadable.
+type recorderSearch struct {
+	found      RecorderRead
+	recorders  map[resourceid.Ref]bool
+	unreadable map[resourceid.Ref]bool
 }
 
 // searchScope is where the view answered for an owner's children, and the
@@ -51,13 +70,17 @@ type accessRead struct {
 // NewView answers for the caller access describes, from s.
 func NewView(s Session, access Access) *View {
 	return &View{
-		session:     s,
-		access:      access,
-		reads:       map[resourceid.Ref]accessRead{},
-		named:       map[types.UID][]resourceid.Ref{},
-		searches:    map[resourceid.Ref]CandidateRead{},
-		searched:    map[types.UID]searchScope{},
-		inventories: map[resourceid.Ref]InventoryRead{},
+		session:          s,
+		access:           access,
+		reads:            map[resourceid.Ref]accessRead{},
+		named:            map[types.UID][]resourceid.Ref{},
+		searches:         map[resourceid.Ref]CandidateRead{},
+		searched:         map[types.UID]searchScope{},
+		inventories:      map[resourceid.Ref]InventoryRead{},
+		recorders:        map[resourceid.Ref]RecordersAnswer{},
+		recorderSearches: map[resourceid.Ref]recorderSearch{},
+		readable:         map[resourceid.Ref]bool{},
+		memberSets:       map[resourceid.Ref]map[resourceid.Ref]bool{},
 	}
 }
 
@@ -519,6 +542,12 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 		a.Gaps = append(a.Gaps, Gap{Kind: manager.GroupKind(), Namespace: manager.Namespace, Reason: readreason.KindSyncPending})
 		return a
 	}
+	v.listRead(manager, inventory.Membership != MembersUnreadable)
+	for ref, search := range v.recorderSearches {
+		if !v.recordersAgree(search, ref, manager, inventory) {
+			v.changed = true
+		}
+	}
 	a.Membership = inventory.Membership
 	if a.Membership != MembersRecorded {
 		return a
@@ -549,4 +578,150 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 
 func compareGaps(a, b Gap) int {
 	return cmp.Or(cmp.Compare(a.Kind.Group, b.Kind.Group), cmp.Compare(a.Kind.Kind, b.Kind.Kind), cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Reason, b.Reason))
+}
+
+// RecordersAnswer is what the local GitOps managers say of one object, as one
+// caller may see them.
+type RecordersAnswer struct {
+	// Recorders are the managers the caller may read whose member lists name
+	// the object, sorted.
+	Recorders []Observation
+	// Unreadable are the managers the caller may read whose member lists
+	// can't be read, any of which may name the object, sorted.
+	Unreadable []resourceid.Ref
+	// Unnamed reports that the object can't be named, so no manager's list
+	// was searched; see RecorderRead.Unnamed.
+	Unnamed bool
+	// Gaps are the search's gaps the caller may read; see RecorderRead.Gaps.
+	Gaps []Gap
+	// searchGaps are all the search's gaps, for Searched.
+	searchGaps []Gap
+}
+
+// Searched reports whether the search read the member list of manager, a
+// manager the caller may read and Radar holds: the object could be named, and
+// no gap the search reported, whether or not the caller may read it, leaves
+// manager's kind unread where manager is. A gap across all namespaces that
+// stands for the namespaces Radar doesn't collect leaves manager's own read.
+func (a RecordersAnswer) Searched(manager resourceid.Ref) bool {
+	return !a.Unnamed && !slices.ContainsFunc(a.searchGaps, func(g Gap) bool { return covers(g, manager, true) })
+}
+
+// Recorders finds the local managers whose member lists name ref, among those
+// the caller may read; a manager the caller may not read takes no part. Asked
+// again for ref, it gives the same answer.
+//
+// A manager it finds listing ref is captured as found and must match any other
+// capture of it. Whether a manager's list can be read must agree across every
+// search and member-list read. And a member list the view read must agree with
+// each search, in either order. Validate reports any disagreement. A search for
+// another object reads the index again, so when the view read no member list
+// of a manager, a change to that list between two searches is caught only if a
+// search returns the manager at another version or in another state.
+func (v *View) Recorders(ref resourceid.Ref) RecordersAnswer {
+	if a, asked := v.recorders[ref]; asked {
+		return a
+	}
+	found := v.session.Recorders(ref)
+	a := RecordersAnswer{Unnamed: found.Unnamed, searchGaps: found.Gaps}
+	for _, g := range found.Gaps {
+		// A gap the caller may not read would say what Radar collects where
+		// the caller can't look.
+		if v.access.Read(g.Kind, g.Namespace) == Allowed {
+			a.Gaps = append(a.Gaps, g)
+		}
+	}
+	search := recorderSearch{found: found, recorders: map[resourceid.Ref]bool{}, unreadable: map[resourceid.Ref]bool{}}
+	for _, m := range found.Recorders {
+		r, read := v.reads[m.Ref]
+		if !read {
+			r = accessRead{may: v.access.Read(m.Ref.GroupKind(), m.Ref.Namespace)}
+			if r.may == Allowed {
+				r.read = ObjectRead{State: Present, Object: m}
+				v.captured(m, true)
+			}
+			v.reads[m.Ref] = r
+		}
+		if r.may != Allowed {
+			continue
+		}
+		search.recorders[m.Ref] = true
+		v.listRead(m.Ref, true)
+		if r.read.State != Present || r.read.Object.UID != m.UID || r.read.Object.ResourceVersion != m.ResourceVersion {
+			v.changed = true
+			continue
+		}
+		a.Recorders = append(a.Recorders, r.read.Object)
+	}
+	may := func(m resourceid.Ref) bool { return v.access.Read(m.GroupKind(), m.Namespace) == Allowed }
+	for _, m := range found.Elsewhere {
+		if may(m) {
+			v.listRead(m, true)
+		}
+	}
+	for _, m := range found.Unreadable {
+		if may(m) {
+			search.unreadable[m] = true
+			v.listRead(m, false)
+			a.Unreadable = append(a.Unreadable, m)
+		}
+	}
+	// The search returns every manager whose list can't be read wherever it
+	// read, so one read as unreadable before that it didn't return changed.
+	for m, readable := range v.readable {
+		if !readable && !search.unreadable[m] && searched(found, m) {
+			v.changed = true
+		}
+	}
+	for manager, inventory := range v.inventories {
+		if inventory.Manager.State == Present && !v.recordersAgree(search, ref, manager, inventory) {
+			v.changed = true
+		}
+	}
+	v.recorderSearches[ref] = search
+	v.recorders[ref] = a
+	return a
+}
+
+// listRead records whether manager's member list could be read, as one read of
+// the manager said; a read that says otherwise saw it change.
+func (v *View) listRead(manager resourceid.Ref, readable bool) {
+	if was, read := v.readable[manager]; read && was != readable {
+		v.changed = true
+	}
+	v.readable[manager] = readable
+}
+
+// searched reports whether found, a search for the managers recording an
+// object, read the member list of manager, a manager Radar holds.
+func searched(found RecorderRead, manager resourceid.Ref) bool {
+	return !found.Unnamed && !slices.ContainsFunc(found.Gaps, func(g Gap) bool { return covers(g, manager, true) })
+}
+
+// recordersAgree reports whether search, for the managers recording ref,
+// agrees with inventory, a read of manager's member list: the search finds the
+// manager as a recorder exactly when its list is readable, local and names
+// ref, and as unreadable exactly when its list can't be read. A search that
+// couldn't read the manager's list says nothing of it.
+func (v *View) recordersAgree(search recorderSearch, ref, manager resourceid.Ref, inventory InventoryRead) bool {
+	if !searched(search.found, manager) {
+		return true
+	}
+	recorder, unreadable := search.recorders[manager], search.unreadable[manager]
+	switch inventory.Membership {
+	case MembersUnreadable:
+		return unreadable && !recorder
+	case MembersRecorded:
+		members, built := v.memberSets[manager]
+		if !built {
+			members = make(map[resourceid.Ref]bool, len(inventory.Members))
+			for _, m := range inventory.Members {
+				members[m] = true
+			}
+			v.memberSets[manager] = members
+		}
+		return !unreadable && recorder == members[ref]
+	}
+	// A remote manager is found, if at all, as elsewhere.
+	return !unreadable && !recorder
 }

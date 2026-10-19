@@ -62,10 +62,21 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		rel.Children = append(rel.Children, refOf(c.Ref))
 	}
 
-	// A manages edge is management only with evidence that it isn't
+	// The GitOps managers whose member lists name the subject manage it,
+	// whether or not the graph draws the edge. A GitOps manager's edge, as
+	// when the graph matched the subject's labels, counts only where the
+	// search couldn't read its list; a list it read says itself.
+	recorders := v.Recorders(subject)
+	for _, m := range recorders.Recorders {
+		rel.Managers = appendResourceRef(rel.Managers, refOf(m.Ref))
+	}
+	labelled := func(r resourceid.Ref) bool {
+		return slices.Contains(recorders.Unreadable, r) || !recorders.Searched(r)
+	}
+
+	// Any other manages edge is management only with evidence that it isn't
 	// ownership or a shortcut past the hops of a controller chain, such as a
-	// CronJob's edge to its Job's Pod: a GitOps manager's edges are
-	// management, and any other edge is once the chain is known to its end.
+	// CronJob's edge to its Job's Pod: the chain is known to its end.
 	root := v.ControllerRoot(subject)
 	for _, s := range sources {
 		r := refIdentity(s)
@@ -74,7 +85,7 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		case !present(v, r):
 			// The caller may not read the manager, or it is gone since the
 			// graph drew its edge.
-		case ownership.IsRecordingManager(r.GroupKind()) || settled(root):
+		case ownership.IsRecordingManager(r.GroupKind()) && labelled(r), !ownership.IsRecordingManager(r.GroupKind()) && settled(root):
 			rel.Managers = appendResourceRef(rel.Managers, s)
 		}
 	}

@@ -130,7 +130,8 @@ func TestApplyOwnershipNeedsTheWholeChainToCallAnEdgeManagement(t *testing.T) {
 	w.Collection[resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"}] = ownershiptest.Collection{State: ownershiptest.Loading}
 	v := ownershipView(t, w, ownership.Unrestricted())
 	pod := idRef("", "Pod", "alpha", "web-1-a")
-	deploy, app := idRef("apps", "Deployment", "alpha", "web"), idRef("argoproj.io", "Application", "argocd", "web")
+	// An Application whose list can't be read, matched by the Pod's labels.
+	deploy, app := idRef("apps", "Deployment", "alpha", "web"), idRef("argoproj.io", "Application", "argocd", "malformed")
 	rel := &Relationships{manageSources: []ResourceRef{refOf(deploy), refOf(app)}}
 	ApplyOwnership(rel, v, fetched(t, w, pod))
 	if got := refsText(rel.Managers); !slices.Equal(got, []string{app.String()}) {
@@ -542,5 +543,106 @@ func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
 	ApplyOwnership(rel, ownershipView(t, w, namespaces), ownership.Observation{Ref: rs.Ref, APIVersion: rs.APIVersion, UID: rs.UID})
 	if !slices.Contains(rel.Ownership.Children.NotChecked, OwnershipGap{Group: widgets.Group, Kind: widgets.Kind, Namespace: "alpha", Reason: string(readreason.RadarKindNotCollected)}) {
 		t.Fatalf("a namespaced owner's gaps = %+v; want Widget in alpha", rel.Ownership.Children.NotChecked)
+	}
+}
+
+// The GitOps managers whose member lists name an object are its managers, as
+// the managers' lists name them, whatever edges the graph drew: the list of
+// a manager that can be read decides, and only a manager whose list can't be
+// read is taken from an edge matching the object's labels.
+func TestApplyOwnershipTakesGitOpsManagersFromTheirLists(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	listed := b.Add("", "ConfigMap", "alpha", "listed")
+	labelled := b.Add("apps", "Deployment", "alpha", "labelled")
+	recorded := b.Manager(ownership.ArgoApplication, "argocd", "recorded", ownership.MembersRecorded, "alpha", listed.Ref)
+	unreadable := b.Manager(ownership.FluxHelmRelease, "alpha", "legacy", ownership.MembersUnreadable, "")
+	remote := b.Manager(ownership.FluxKustomization, "flux-system", "remote", ownership.MembersRemote, "", listed.Ref, labelled.Ref)
+	w := b.World()
+	for _, tc := range []struct {
+		name    string
+		subject ownershiptest.Object
+		edges   []resourceid.Ref
+		access  ownership.Access
+		want    []string
+	}{
+		{"listed, with no edge", listed, nil, ownership.Unrestricted(), []string{recorded.Ref.String()}},
+		{"an edge the manager's list contradicts", labelled, []resourceid.Ref{recorded.Ref}, ownership.Unrestricted(), nil},
+		{"an edge from a manager whose list can't be read", labelled, []resourceid.Ref{unreadable.Ref}, ownership.Unrestricted(), []string{unreadable.Ref.String()}},
+		{"an edge from a manager of another cluster", labelled, []resourceid.Ref{remote.Ref}, ownership.Unrestricted(), nil},
+		{"listed by a manager the caller may not read", listed, nil, denyKind{ownership.ArgoApplication}, nil},
+	} {
+		rel := &Relationships{}
+		for _, e := range tc.edges {
+			rel.manageSources = append(rel.manageSources, refOf(e))
+		}
+		v := ownershipView(t, w, tc.access)
+		ApplyOwnership(rel, v, fetched(t, w, tc.subject.Ref))
+		if err := v.Validate(); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := refsText(rel.Managers); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: managers %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A gap for the namespaces Radar doesn't collect doesn't let a graph edge
+// overrule the list of a manager in a namespace it does collect: the search
+// read that list.
+func TestApplyOwnershipKeepsAReadListOverAGapElsewhere(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	subject := b.Add("", "ConfigMap", "alpha", "cfg")
+	// Its list names nothing.
+	manager := b.Manager(ownership.ArgoApplication, "alpha", "app", ownership.MembersRecorded, "alpha")
+	w := b.World()
+	w.Collection[ownership.ArgoApplication] = ownershiptest.Collection{Namespaces: []string{"alpha"}}
+	v := ownershipView(t, w, ownership.Unrestricted())
+	rel := &Relationships{manageSources: []ResourceRef{refOf(manager.Ref)}}
+	ApplyOwnership(rel, v, fetched(t, w, subject.Ref))
+	if err := v.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(rel.Managers) != 0 {
+		t.Errorf("managers %v, want none; gaps %+v", refsText(rel.Managers), v.Recorders(subject.Ref).Gaps)
+	}
+}
+
+// wholeKindUndecided can't decide whether the caller may read Applications in
+// some namespace, though it allows them in alpha.
+type wholeKindUndecided struct{ ownership.Access }
+
+func (a wholeKindUndecided) Read(gk resourceid.GroupKind, namespace string) ownership.Decision {
+	if gk == ownership.ArgoApplication && namespace == "" {
+		return ownership.Undecided
+	}
+	return a.Access.Read(gk, namespace)
+}
+
+// stalledRecorders answers every Recorders search with Applications unread.
+type stalledRecorders struct{ ownership.Session }
+
+func (stalledRecorders) Recorders(resourceid.Ref) ownership.RecorderRead {
+	return ownership.RecorderRead{Gaps: []ownership.Gap{{Kind: ownership.ArgoApplication, Reason: readreason.KindSyncPending}}}
+}
+
+// A manager whose list the search couldn't read keeps its graph edge, even
+// when the gap saying so is one the caller may not read.
+func TestApplyOwnershipKeepsTheEdgeOfAManagerBehindAHiddenGap(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	cfg := b.Add("", "ConfigMap", "alpha", "cfg")
+	app := b.Manager(ownership.ArgoApplication, "alpha", "app", ownership.MembersUnreadable, "alpha")
+	w := b.World()
+	s, err := ownershiptest.Scan(w).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := ownership.NewView(stalledRecorders{s}, wholeKindUndecided{ownership.Unrestricted()})
+	rel := &Relationships{manageSources: []ResourceRef{refOf(app.Ref)}}
+	ApplyOwnership(rel, v, fetched(t, w, cfg.Ref))
+	if err := v.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := refsText(rel.Managers); !slices.Equal(got, []string{app.Ref.String()}) {
+		t.Errorf("managers %v, want %v from its edge", got, app.Ref)
 	}
 }
