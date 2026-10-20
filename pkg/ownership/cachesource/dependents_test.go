@@ -389,13 +389,11 @@ func TestOwnerCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
 		return f.caches.Typed.KindReadinessFor(k8score.Secrets) == k8score.KindFailed
 	})
 	secret := resourceid.GroupKind{Kind: "Secret"}
-	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha")} {
+	// One informer serves every namespace, so its state is one gap whatever
+	// the search names.
+	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha"), {Namespaces: []string{"alpha", "beta"}}} {
 		got := begin(t, f.source()).OwnerCandidates("uid-deploy", domain, 0)
-		namespace := ""
-		if !domain.AllNamespaces {
-			namespace = "alpha"
-		}
-		if want := (ownership.Gap{Kind: secret, Namespace: namespace, Reason: readreason.KindSyncTimedOut}); !slices.Contains(got.Gaps, want) {
+		if want := (ownership.Gap{Kind: secret, Reason: readreason.KindSyncTimedOut}); !slices.Contains(got.Gaps, want) {
 			t.Errorf("%+v: gaps %+v; want %+v", domain, got.Gaps, want)
 		}
 	}
@@ -426,6 +424,51 @@ func TestOwnerCandidatesReportAWholeKindsStateOnce(t *testing.T) {
 	}
 	if got := s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: []string{""}}, 0); slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == gadget }) {
 		t.Fatalf("a domain naming no namespace has gaps %+v; it looked nowhere", got.Gaps)
+	}
+}
+
+// A kind whose one cluster-wide informer hasn't loaded, typed or dynamic, is
+// in the same state in every namespace a search names: one gap, whether the
+// search names one namespace or a hundred.
+func TestOwnerCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
+	f := newFixture(t, k8score.CacheConfig{
+		ResourceTypes: map[string]bool{k8score.Pods: true, k8score.Secrets: true},
+		DeferredTypes: map[string]bool{k8score.Secrets: true},
+	}, func(f *fixture) {
+		f.typed.PrependReactor("list", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("initial list held")
+		})
+		var widgetLists atomic.Int32
+		f.dynamic.PrependReactor("list", "widgets", func(k8stesting.Action) (bool, runtime.Object, error) {
+			if widgetLists.Add(1) > 1 {
+				// The first list is the watch's access probe.
+				return true, nil, errors.New("initial list held")
+			}
+			return false, nil, nil
+		})
+	})
+	if err := f.caches.Dynamic.EnsureWatching(widgets); err != nil {
+		t.Fatal(err)
+	}
+	s := begin(t, f.source())
+	search := func(n int) ownership.CandidateRead {
+		var namespaces []string
+		for i := range n {
+			namespaces = append(namespaces, fmt.Sprintf("ns-%03d", i))
+		}
+		return s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: namespaces, ClusterScoped: true}, 0)
+	}
+	one, hundred := search(1), search(100)
+	for _, want := range []ownership.Gap{
+		{Kind: resourceid.GroupKind{Kind: "Secret"}, Reason: readreason.KindSyncPending},
+		{Kind: resourceid.GroupKind{Group: "example.io", Kind: "Widget"}, Reason: readreason.KindSyncPending},
+	} {
+		if !slices.Contains(one.Gaps, want) {
+			t.Fatalf("gaps %+v; want %+v", one.Gaps, want)
+		}
+	}
+	if !slices.Equal(hundred.Gaps, one.Gaps) {
+		t.Fatalf("a search of 100 namespaces has %d gaps, one of a single namespace %d: %+v", len(hundred.Gaps), len(one.Gaps), hundred.Gaps)
 	}
 }
 

@@ -644,6 +644,14 @@ func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
 	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache went away: %v, want ErrCachesReplaced", err)
 	}
+	// A typed cache replaced by one still running is a switch even before
+	// the old one stops.
+	current = f.caches
+	s = begin(t, source)
+	current.Typed = other.caches.Typed
+	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+		t.Fatalf("after the typed cache was replaced: %v, want ErrCachesReplaced", err)
+	}
 }
 
 func TestSessionDoesNoIO(t *testing.T) {

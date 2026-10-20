@@ -233,9 +233,10 @@ func (s scanSession) OwnerCandidates(uid types.UID, domain ownership.Domain, lim
 					readable[ns] = true
 				}
 			}
-		case c.State == NotCollected || c.State == Refused || c.State == Unwatchable:
-			// The whole kind's state leaves it unread in every namespace the
-			// domain names: one gap says so.
+		case c.State == NotCollected || c.State == Refused || c.State == Unwatchable || c.State == Loading && c.Namespaces == nil:
+			// The whole kind's state, or that of the one store serving every
+			// namespace, leaves it unread in each namespace the domain names:
+			// one gap says so.
 			if len(namespaces) > 0 {
 				gap(k.gk, "", heldReason(c, true, ""))
 			}

@@ -134,8 +134,10 @@ func argoMembership(spec, status map[string]any, scope scopeOf) (ownership.Membe
 func fluxMembership(generation int64, spec, status map[string]any, scope scopeOf) (ownership.MembershipState, []resourceid.Ref, string) {
 	// An inventory the controller wrote before it observed the current spec
 	// may be from another destination: spec.kubeConfig is where it applies
-	// now. A suspended object's controller observes a new spec without
-	// applying it, so this can't tell a destination changed while suspended.
+	// now. A controller can record a generation as observed without applying
+	// it (on suspension, after a failure it won't retry, while a HelmRelease
+	// waits to retry), so this can't tell a destination changed in such a
+	// generation.
 	if observed, ok := status["observedGeneration"].(int64); ok && observed < generation {
 		return ownership.MembersUnreadable, nil, ""
 	}
