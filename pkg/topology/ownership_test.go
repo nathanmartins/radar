@@ -577,6 +577,21 @@ func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
 	if !slices.Contains(rel.Ownership.Children.NotChecked, OwnershipGap{Group: widgets.Group, Kind: widgets.Kind, Reason: string(readreason.RadarKindNotCollected)}) {
 		t.Fatalf("a namespaced owner's gaps = %+v; want Widget, wherever the search looked", rel.Ownership.Children.NotChecked)
 	}
+
+	// A kind still loading is a gap in each namespace; the wire lists it once,
+	// naming no namespace when it was more than one.
+	w.Collection[resourceid.GroupKind{Kind: "Pod"}] = ownershiptest.Collection{State: ownershiptest.Loading}
+	rel = &Relationships{}
+	ApplyOwnership(rel, ownershipView(t, w, namespacesOnly{"alpha", "beta"}), ownership.Observation{Ref: node.Ref, APIVersion: node.APIVersion, UID: node.UID})
+	var loading []OwnershipGap
+	for _, g := range rel.Ownership.Children.NotChecked {
+		if g.Kind == "Pod" {
+			loading = append(loading, g)
+		}
+	}
+	if len(loading) != 1 || loading[0].Namespace != "" || loading[0].Reason != string(readreason.KindSyncPending) {
+		t.Fatalf("Pod gaps on the Node = %+v; want one, loading in both namespaces", loading)
+	}
 }
 
 // The GitOps managers whose member lists name an object are its managers, as
