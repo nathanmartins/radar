@@ -112,8 +112,6 @@ func TestResourceGetAnswersOwnershipFromOwnerReferences(t *testing.T) {
 	}
 }
 
-// A user who may read the namespace but not one of the kinds the GET gate
-// checks there sees the same children, marked narrowed.
 // Until Radar has a relationship graph, as while it starts or after a context
 // switch, a GET sends no relationships: the UI reads that as owners not mapped
 // yet, and its GitOps write guard warns instead of finding no manager.
@@ -145,6 +143,8 @@ func TestResourceGetWithoutAGraphSendsNoRelationships(t *testing.T) {
 	}
 }
 
+// A user who may read the namespace but not one of the kinds the GET gate
+// checks there sees the same children, marked narrowed.
 func TestResourceGetOwnershipForAUserWhoMayReadLess(t *testing.T) {
 	withOwnershipDiscovery(t)
 	env := newAuthTestServer(t)

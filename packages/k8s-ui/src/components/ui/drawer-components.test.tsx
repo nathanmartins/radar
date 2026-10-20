@@ -175,6 +175,13 @@ describe('RelatedResourcesSection ownership', () => {
     const noList = renderToString(<RelatedResourcesSection relationships={{ manages: [rs], ownership: { children: { complete: true }, manages: { membership: 'unreadable' } } }} />)
     expect(noList).not.toContain('Couldn&#x27;t read')
     expect(noList).toContain('Its status has no member list Radar can read now, so these are the resources the topology links to it.')
+    const cut = renderToString(
+      <RelatedResourcesSection relationships={{ manages: [rs], ownership: { children: { complete: true }, manages: { membership: 'unreadable', truncated: true } } }} />,
+    )
+    expect(cut).toContain('More members than shown.')
+    const none = renderToString(<RelatedResourcesSection relationships={{ ownership: { children: { complete: true }, manages: { membership: 'unreadable' } } }} />)
+    expect(none).toContain('Its status has no member list Radar can read now.')
+    expect(none).not.toContain('these are the resources')
   })
 
   it('hints, without warning, at kinds API discovery missed', () => {

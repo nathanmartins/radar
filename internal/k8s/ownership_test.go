@@ -163,8 +163,23 @@ func historyChild(name string) topology.ResourceRef {
 	return topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "shop", Name: name}
 }
 
-// A Deployment's history moves out of Children only for ReplicaSets the cache
-// holds with no Pod naming them, read through the session's own cache.
+// Before discovery answers, as while Radar starts, no kind can be searched or
+// resolved: the answer is unavailable, not a list of children with every kind
+// unread.
+func TestAnswerOwnershipWaitsForDiscovery(t *testing.T) {
+	_, typed, _, deployment := historyFixture(t, historyReplicaSet("web-3", "3", 1, 1))
+	source := cachesource.New(func() cachesource.Caches { return cachesource.Caches{Typed: typed} })
+	subject := resourceid.Ref{Group: "apps", Kind: "Deployment", Namespace: "shop", Name: "web"}
+	unrestricted := func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() }
+	for name, apply := range map[string]func(*topology.Relationships, *ownership.View, ownership.Observation){"full": topology.ApplyOwnership, "owner only": topology.ApplyOwner} {
+		rel := &topology.Relationships{}
+		answerOwnership(source, apply, nil, rel, ownership.Observe(subject, "apps/v1", deployment), unrestricted)
+		if rel.Ownership == nil || rel.Ownership.Unavailable != string(readreason.ClusterConnecting) || len(rel.Children) != 0 {
+			t.Errorf("%s: ownership %+v, children %v; want unavailable while discovery hasn't answered", name, rel.Ownership, rel.Children)
+		}
+	}
+}
+
 // Only a Deployment or Rollout keeps rollback history, so the split gathers
 // nothing for another owner: a ReplicaSet with hundreds of Pods, like a
 // DaemonSet with thousands, costs what it costs without the split.
@@ -199,6 +214,8 @@ func TestSplitHistoryCostsNothingForAnOwnerWithoutHistory(t *testing.T) {
 	}
 }
 
+// A Deployment's history moves out of Children only for ReplicaSets the cache
+// holds with no Pod naming them, read through the session's own cache.
 func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
 	_, _, source, deployment := historyFixture(t,
 		historyReplicaSet("web-3", "3", 1, 1), historyPod("web-3-a", "web-3"),

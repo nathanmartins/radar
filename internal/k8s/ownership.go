@@ -107,6 +107,12 @@ func answerOwnership(source ownership.Source, apply func(*topology.Relationships
 			topology.OwnershipUnavailable(rel, string(readreason.ClusterConnecting))
 			return
 		}
+		if len(session.Catalog().DependentKinds()) == 0 {
+			// Discovery hasn't answered yet, as while Radar starts, so no
+			// kind could be searched or resolved.
+			topology.OwnershipUnavailable(rel, string(readreason.ClusterConnecting))
+			return
+		}
 		v := ownership.NewView(session, access(session.Catalog()))
 		apply(rel, v, fetched)
 		if present != nil {

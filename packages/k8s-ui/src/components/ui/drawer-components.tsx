@@ -831,7 +831,7 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
   const configRefs = omitResourceRefs(relationships.configRefs ?? [], relationships.dependencies ?? [])
   const consumers = omitResourceRefs(relationships.consumers ?? [], relationships.dependents ?? [])
   const alsoOwnedBy = omitResourceRefs(relationships.owners ?? [], relationships.owner ? [relationships.owner] : [])
-  const managesNote = membersNote(relationships.ownership?.manages)
+  const managesNote = membersNote(relationships.ownership?.manages, (relationships.manages?.length ?? 0) > 0)
   const unanswered = ownershipUnanswered(relationships.ownership)
   const several = !relationships.owner && relationships.ownership?.ownerState === 'several'
   const ownerMissing = relationships.owner || several ? undefined : ownerNote(relationships.ownership)
@@ -1089,13 +1089,19 @@ function gapReasonText(reason: string): string {
 }
 
 // membersNote says what a GitOps manager's status records beyond the members
-// Manages lists.
-function membersNote(manages: OwnershipCoverage['manages'] | undefined): RelationshipNote | undefined {
+// Manages lists; listed says whether it lists any.
+function membersNote(manages: OwnershipCoverage['manages'] | undefined, listed: boolean): RelationshipNote | undefined {
   if (!manages) return undefined
   if (manages.membership === 'remote') return { text: "Its destination isn't this cluster as far as Radar can tell, so its members aren't listed." }
   if (manages.membership === 'unreadable') {
-    if (manages.unavailable) return { text: `Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).` }
-    return { hint: ["Its status has no member list Radar can read now, so these are the resources the topology links to it."] }
+    const note: RelationshipNote = {}
+    const text: string[] = []
+    if (manages.unavailable) text.push(`Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).`)
+    if (manages.truncated) text.push('More members than shown.')
+    if (text.length > 0) note.text = text.join(' ')
+    if (listed) note.hint = ["Its status has no member list Radar can read now, so these are the resources the topology links to it."]
+    else if (!manages.unavailable) note.hint = ["Its status has no member list Radar can read now."]
+    return note
   }
   const extra: string[] = []
   if (manages.missing) extra.push(`${manages.missing} not in the cluster`)
