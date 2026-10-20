@@ -581,7 +581,7 @@ func TestDiagnoseContractMatchesServerMode(t *testing.T) {
 }
 
 func TestReadOnlyDiagnoseRejectsHandCraftedInClusterArgument(t *testing.T) {
-	session := connectTo(t, newServer(false, ""))
+	session := connectTo(t, newServer(false, false, ""))
 	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
 		Name: "diagnose",
 		Arguments: map[string]any{
@@ -609,7 +609,7 @@ func TestReadOnlyDiagnoseRejectsHandCraftedInClusterArgument(t *testing.T) {
 }
 
 func TestReadOnlyDiagnoseRepairsArgumentsWithServerLocalRegistry(t *testing.T) {
-	session := connectTo(t, newServer(false, ""))
+	session := connectTo(t, newServer(false, false, ""))
 	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
 		Name: "diagnose",
 		Arguments: map[string]any{
@@ -645,7 +645,7 @@ func listRegisteredToolsWithRegistry(t *testing.T, includeWrites bool) ([]*mcpsd
 
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "radar-test", Version: "test"}, nil)
 	registry := newToolParamRegistry()
-	registerTools(server, includeWrites, registry)
+	registerTools(server, includeWrites, true, registry)
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "radar-test-client", Version: "test"}, nil)
 	ctx := context.Background()
