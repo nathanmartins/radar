@@ -336,17 +336,23 @@ func (s *session) namespaceWatches(gvr schema.GroupVersionResource) ([]string, b
 	return namespaces, namespaces != nil
 }
 
-// sameIncarnations reports whether two stores returned the same objects.
+// sameIncarnations reports whether two stores returned the same objects, each
+// at the same update: an object's resourceVersion is the same at every API
+// version, so a difference means one watch hasn't caught up.
 func sameIncarnations(a, b []*unstructured.Unstructured) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	seen := make(map[string]types.UID, len(a))
+	type copyOf struct {
+		uid             types.UID
+		resourceVersion string
+	}
+	seen := make(map[string]copyOf, len(a))
 	for _, u := range a {
-		seen[u.GetNamespace()+"/"+u.GetName()] = u.GetUID()
+		seen[u.GetNamespace()+"/"+u.GetName()] = copyOf{u.GetUID(), u.GetResourceVersion()}
 	}
 	for _, u := range b {
-		if uid, ok := seen[u.GetNamespace()+"/"+u.GetName()]; !ok || uid != u.GetUID() {
+		if c, ok := seen[u.GetNamespace()+"/"+u.GetName()]; !ok || c != (copyOf{u.GetUID(), u.GetResourceVersion()}) {
 			return false
 		}
 	}

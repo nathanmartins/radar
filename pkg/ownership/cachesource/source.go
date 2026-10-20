@@ -292,13 +292,28 @@ func (s *session) Validate() error {
 	// A store replaced between two reads of one resource and namespace is no
 	// longer the one first recorded, so this also catches a session whose
 	// reads came from both.
+	var anywhere map[schema.GroupVersionResource]bool
 	for key, server := range s.served {
 		if current, _ := s.caches.Dynamic.ReadServer(key.gvr, key.namespace); !current.Same(server) {
 			return ownership.ErrStoreReplaced
 		}
 		// A version the session didn't read, because nothing watched it
-		// then, is watched now and may disagree with the one it read.
+		// then, is watched now and may disagree with the one it read. A read
+		// of every namespace at once can be overtaken by a watch of any one
+		// of them, which ReadServer doesn't report for "".
 		for _, gvr := range s.unconsulted[key.gvr.GroupResource()] {
+			if key.namespace == "" {
+				if anywhere == nil {
+					anywhere = map[schema.GroupVersionResource]bool{}
+					for _, watched := range s.caches.Dynamic.WatchedGVRs() {
+						anywhere[watched] = true
+					}
+				}
+				if anywhere[gvr] {
+					return ownership.ErrStoreReplaced
+				}
+				continue
+			}
 			if started, _ := s.caches.Dynamic.ReadServer(gvr, key.namespace); !started.Same(k8score.DynamicReadServer{}) {
 				return ownership.ErrStoreReplaced
 			}

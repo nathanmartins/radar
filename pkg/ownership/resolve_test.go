@@ -293,3 +293,29 @@ func collectorResolves(t *testing.T, w ownershiptest.World, mapper meta.RESTMapp
 	}
 	return ownership.OwnerGone, at, true
 }
+
+// Two references the collector's RESTMapper settles by the order it registered
+// resources in, which Radar can't know, stay unknown rather than resolving to
+// one candidate: a kind in lower case that two kinds differing only in case
+// share, and the List kind of a kind two resources serve.
+func TestResolveOwnerLeavesOrderDependentMappingsUnknown(t *testing.T) {
+	gc := []string{"create", "delete", "get", "list", "patch", "update", "watch"}
+	w := ownershiptest.Fixture()
+	w.Resources = append(w.Resources,
+		ownership.ServedResource{Group: "shapes.example.io", Version: "v1", Kind: "Thing", Resource: "things", Namespaced: true, Verbs: gc},
+		ownership.ServedResource{Group: "shapes.example.io", Version: "v1", Kind: "THING", Resource: "allcapsthings", Namespaced: true, Verbs: gc},
+		ownership.ServedResource{Group: "shapes.example.io", Version: "v1", Kind: "Gizmo", Resource: "gizmos", Namespaced: true, Verbs: gc},
+		ownership.ServedResource{Group: "shapes.example.io", Version: "v1", Kind: "Gizmo", Resource: "gizmoalts", Namespaced: true, Verbs: gc},
+	)
+	s, err := ownershiptest.Scan(w).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod := ownership.Observation{Ref: resourceid.Ref{Kind: "Pod", Namespace: "alpha", Name: "probe"}}
+	for _, kind := range []string{"thing", "GizmoList"} {
+		got := ownership.ResolveOwner(s, pod, metav1.OwnerReference{APIVersion: "shapes.example.io/v1", Kind: kind, Name: "x", UID: "uid-x"})
+		if got.State != ownership.OwnerUnknown || got.Gap.Reason != readreason.ReadError {
+			t.Errorf("%s: %v %+v, want unknown with read_error", kind, got.State, got.Gap)
+		}
+	}
+}

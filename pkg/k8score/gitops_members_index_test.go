@@ -242,3 +242,29 @@ func TestReadableIndexedReadsItsKeysTogether(t *testing.T) {
 		t.Fatalf("%d reads of one key at a time", interleaving.reads)
 	}
 }
+
+// A read of several owner UIDs takes them together, as a read of several
+// member keys does: the owner index answers the union query too.
+func TestReadableIndexedReadsSeveralOwnerUIDs(t *testing.T) {
+	gvr := schema.GroupVersionResource{Group: "example.io", Version: "v1", Resource: "widgets"}
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{OwnerUIDIndex: ownerUIDs})
+	for name, owner := range map[string]string{"a": "uid-1", "b": "uid-2", "c": "uid-3"} {
+		u := &unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{
+			"namespace": "alpha", "name": name,
+			"ownerReferences": []any{map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "name": "owner", "uid": owner}},
+		}}}
+		if err := indexer.Add(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := &DynamicResourceCache{informers: map[informerKey]*informerEntry{{gvr: gvr}: {informer: syncedInformer{indexer: indexer}}}}
+	objs, _, ok := d.ReadableIndexed(gvr, "", OwnerUIDIndex, "uid-1", "uid-2")
+	var names []string
+	for _, o := range objs {
+		names = append(names, o.GetName())
+	}
+	slices.Sort(names)
+	if !ok || !slices.Equal(names, []string{"a", "b"}) {
+		t.Fatalf("found %v (ok %v), want the dependents of both owners", names, ok)
+	}
+}

@@ -10,8 +10,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/skyhook-io/radar/pkg/gitops"
 	"github.com/skyhook-io/radar/pkg/k8score"
@@ -392,39 +395,93 @@ func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 	}
 }
 
-// Opening a member of a large Application searches for the managers recording
-// it; that costs the same however long the list naming it is. Counting
-// allocations can't tell: building a list sized up front is one allocation at
-// any length.
+// Opening a member of a large Application or Kustomization searches for the
+// managers recording it; that costs the same however long the list naming it
+// is, RBAC names Flux encodes included. Counting allocations can't tell:
+// building a list sized up front is one allocation at any length.
 func TestRecordersCostDoesNotGrowWithTheManagersList(t *testing.T) {
-	target := resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}
-	bytesPerSearch := func(n int) uint64 {
-		members := []resourceid.Ref{target}
-		for i := 1; i < n; i++ {
-			members = append(members, resourceid.Ref{Kind: "Service", Namespace: "shop", Name: fmt.Sprint("svc-", i)})
-		}
-		k, _ := ownershiptest.KindOf(ownership.ArgoApplication)
-		app := ownershiptest.Object{Ref: resourceid.Ref{Group: k.Group, Kind: k.Kind, Namespace: "argocd", Name: "big"}, APIVersion: k.APIVersion(),
-			UID: "uid-big", ResourceVersion: "1", Membership: ownership.MembersRecorded, Members: members}
-		w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}, Objects: []ownershiptest.Object{app}}
-		for _, item := range ownershiptest.Kinds {
-			w.Collection[item.GroupKind] = ownershiptest.Collection{OnDemand: !item.Typed}
-		}
-		s := begin(t, render(t, w).source())
-		if got := s.Recorders(target); len(got.Recorders) != 1 {
-			t.Fatalf("Recorders(%v) = %+v", target, got)
-		}
-		const searches = 20
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		for range searches {
-			s.Recorders(target)
-		}
-		runtime.ReadMemStats(&after)
-		return (after.TotalAlloc - before.TotalAlloc) / searches
+	rbac := func(name string) resourceid.Ref {
+		return resourceid.Ref{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding", Namespace: "shop", Name: name}
 	}
-	small, large := bytesPerSearch(40), bytesPerSearch(10000)
-	if large > small+64<<10 {
-		t.Fatalf("%d bytes per search when a 10,000-entry list names the object, %d for 40", large, small)
+	service := func(name string) resourceid.Ref {
+		return resourceid.Ref{Kind: "Service", Namespace: "shop", Name: name}
+	}
+	for _, tc := range []struct {
+		manager resourceid.GroupKind
+		member  func(string) resourceid.Ref
+	}{
+		{ownership.ArgoApplication, service},
+		{ownership.FluxKustomization, func(name string) resourceid.Ref { return rbac("metrics-server:" + name) }},
+	} {
+		t.Run(tc.manager.Kind, func(t *testing.T) {
+			target := tc.member("ui")
+			bytesPerSearch := func(n int) uint64 {
+				members := []resourceid.Ref{target}
+				for i := 1; i < n; i++ {
+					members = append(members, tc.member(fmt.Sprint("svc-", i)))
+				}
+				k, _ := ownershiptest.KindOf(tc.manager)
+				m := ownershiptest.Object{Ref: resourceid.Ref{Group: k.Group, Kind: k.Kind, Namespace: "ops", Name: "big"}, APIVersion: k.APIVersion(),
+					UID: "uid-big", ResourceVersion: "1", Membership: ownership.MembersRecorded, Members: members}
+				w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}, Objects: []ownershiptest.Object{m}}
+				for _, item := range ownershiptest.Kinds {
+					w.Collection[item.GroupKind] = ownershiptest.Collection{OnDemand: !item.Typed}
+				}
+				s := begin(t, render(t, w).source())
+				if got := s.Recorders(target); len(got.Recorders) != 1 {
+					t.Fatalf("Recorders(%v) = %+v", target, got)
+				}
+				const searches = 20
+				var before, after runtime.MemStats
+				runtime.ReadMemStats(&before)
+				for range searches {
+					s.Recorders(target)
+				}
+				runtime.ReadMemStats(&after)
+				return (after.TotalAlloc - before.TotalAlloc) / searches
+			}
+			small, large := bytesPerSearch(40), bytesPerSearch(10000)
+			if large > small+64<<10 {
+				t.Fatalf("%d bytes per search when a 10,000-entry list names the object, %d for 40", large, small)
+			}
+		})
+	}
+}
+
+// A manager kind watched at two versions can hold one manager at two updates
+// while a watch catches up; here the newer copy's list may be another
+// cluster's. A search must not classify the older copy and call the answer
+// complete, just as Inventory doesn't answer from it.
+func TestRecordersNeedManagerVersionsToAgreeOnTheUpdate(t *testing.T) {
+	stable := schema.GroupVersionResource{Group: ownership.FluxHelmRelease.Group, Version: "v2", Resource: "helmreleases"}
+	beta := stable
+	beta.Version = "v2beta1"
+	older := atGeneration(manager(ownership.FluxHelmRelease, nil, map[string]any{"observedGeneration": int64(1),
+		"inventory": map[string]any{"entries": []any{map[string]any{"id": "shop_ui__Service"}}}}), 1)
+	older.SetAPIVersion(stable.GroupVersion().String())
+	older.SetResourceVersion("41")
+	older.SetUID("uid-m")
+	newer := older.DeepCopy()
+	newer.SetAPIVersion(beta.GroupVersion().String())
+	newer.SetResourceVersion("42")
+	newer.SetGeneration(2)
+	newer.Object["spec"] = map[string]any{"suspend": true, "kubeConfig": map[string]any{"secretRef": map[string]any{"name": "other"}}}
+	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(apiruntime.NewScheme(),
+			map[schema.GroupVersionResource]string{stable: "HelmReleaseList", beta: "HelmReleaseList"}, older, newer)
+		d := f.typed.Discovery().(*fakediscovery.FakeDiscovery)
+		for _, gvr := range []schema.GroupVersionResource{stable, beta} {
+			d.Resources = append(d.Resources, &metav1.APIResourceList{GroupVersion: gvr.GroupVersion().String(),
+				APIResources: []metav1.APIResource{{Name: gvr.Resource, Kind: ownership.FluxHelmRelease.Kind, Namespaced: true, Verbs: []string{"get", "list", "watch"}}}})
+		}
+	})
+	f.watch(t, stable)
+	f.watch(t, beta)
+	s := begin(t, f.source())
+	if inv := s.Inventory(resourceid.Ref{Group: stable.Group, Kind: ownership.FluxHelmRelease.Kind, Namespace: "ops", Name: "m"}); inv.Manager.State != ownership.Unavailable {
+		t.Fatalf("Inventory = %+v; the two versions disagree", inv)
+	}
+	if got := s.Recorders(resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}); got.Complete() || len(got.Recorders) != 0 {
+		t.Fatalf("Recorders = %+v, complete %v; it classified the older copy", got, got.Complete())
 	}
 }
