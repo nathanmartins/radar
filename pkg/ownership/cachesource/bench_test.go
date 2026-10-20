@@ -15,8 +15,7 @@ import (
 // serving 300 custom kinds Radar doesn't watch, as most clusters do: each is a
 // gap, and the session works out why once.
 func BenchmarkOwnerCandidatesWithManyUnwatchedKinds(b *testing.B) {
-	t := &testing.T{}
-	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+	f := newFixture(b, k8score.CacheConfig{}, func(f *fixture) {
 		fd := f.typed.Discovery().(*fakediscovery.FakeDiscovery)
 		var crds []metav1.APIResource
 		for i := range 300 {

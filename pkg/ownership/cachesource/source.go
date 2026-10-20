@@ -98,6 +98,10 @@ type session struct {
 	watched map[schema.GroupResource][]schema.GroupVersionResource
 	// versions holds the versions the session reads each resource at.
 	versions map[schema.GroupResource][]schema.GroupVersionResource
+	// unconsulted holds, for each resource the session reads, the versions
+	// the catalog serves that weren't watched when it chose its versions. One
+	// watched later may hold what the others lack, so Validate checks them.
+	unconsulted map[schema.GroupResource][]schema.GroupVersionResource
 	// served records the informers that first answered each resource and
 	// namespace the session read dynamically.
 	served map[servedKey]k8score.DynamicReadServer
@@ -197,8 +201,10 @@ func (s *session) dynamicObject(ref resourceid.Ref, borrow func(*unstructured.Un
 		switch {
 		case !answered:
 			answer, answeredFrom, answered = read, obj, true
-		case read.State != answer.State || read.Object.UID != answer.Object.UID:
-			// Two version watches disagree: one hasn't caught up yet.
+		case read.State != answer.State || read.Object.UID != answer.Object.UID || read.Object.ResourceVersion != answer.Object.ResourceVersion:
+			// Two version watches disagree: one hasn't caught up yet. An
+			// object's resourceVersion is the same at every API version, so
+			// a difference means one holds an update the other lacks.
 			return unavailable(ref, readreason.KindSyncPending)
 		}
 	}
@@ -257,8 +263,14 @@ func (s *session) servingVersions(kind ownership.Kind) []schema.GroupVersionReso
 	}
 	if s.versions == nil {
 		s.versions = map[schema.GroupResource][]schema.GroupVersionResource{}
+		s.unconsulted = map[schema.GroupResource][]schema.GroupVersionResource{}
 	}
 	s.versions[gr] = versions
+	for _, v := range kind.Versions {
+		if gvr := gr.WithVersion(v); !slices.Contains(versions, gvr) {
+			s.unconsulted[gr] = append(s.unconsulted[gr], gvr)
+		}
+	}
 	return versions
 }
 
@@ -283,6 +295,13 @@ func (s *session) Validate() error {
 	for key, server := range s.served {
 		if current, _ := s.caches.Dynamic.ReadServer(key.gvr, key.namespace); !current.Same(server) {
 			return ownership.ErrStoreReplaced
+		}
+		// A version the session didn't read, because nothing watched it
+		// then, is watched now and may disagree with the one it read.
+		for _, gvr := range s.unconsulted[key.gvr.GroupResource()] {
+			if started, _ := s.caches.Dynamic.ReadServer(gvr, key.namespace); !started.Same(k8score.DynamicReadServer{}) {
+				return ownership.ErrStoreReplaced
+			}
 		}
 	}
 	return nil

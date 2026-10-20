@@ -2,6 +2,7 @@ package cachesource
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -127,7 +128,7 @@ type fixture struct {
 // newFixture starts caches over the fixture objects. cfg selects the typed
 // kinds (default: Pods, ReplicaSets, Deployments, Nodes, Events); prepare runs
 // before any cache starts, for reactors.
-func newFixture(t *testing.T, cfg k8score.CacheConfig, prepare func(*fixture)) *fixture {
+func newFixture(t testing.TB, cfg k8score.CacheConfig, prepare func(*fixture)) *fixture {
 	t.Helper()
 	f := &fixture{
 		typed: fake.NewClientset(typedObjects()...),
@@ -805,6 +806,16 @@ func betaWidget(u *unstructured.Unstructured) *unstructured.Unstructured {
 	return u
 }
 
+func atVersion(u *unstructured.Unstructured, rv string) *unstructured.Unstructured {
+	u.SetResourceVersion(rv)
+	return u
+}
+
+func adopted(u *unstructured.Unstructured) *unstructured.Unstructured {
+	u.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "example.io/v1", Kind: "Gadget", Name: "new-owner", UID: "uid-new-owner", Controller: ptr(true)}})
+	return u
+}
+
 func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 	w1 := ref("example.io", "Widget", "alpha", "w1")
 	for _, tc := range []struct {
@@ -824,6 +835,11 @@ func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 			want: ownership.Unavailable, wantReason: readreason.KindSyncPending},
 		{name: "only the loaded one answers", v1: []runtime.Object{widget("alpha", "w1", "uid-widget")}, v1beta1: []runtime.Object{betaWidget(widget("alpha", "w1", "uid-widget"))},
 			hold: func(v string) bool { return v == "v1" }, want: ownership.Present, wantVersion: "example.io/v1beta1"},
+		// One watch holds an update, such as an adoption, the other hasn't
+		// received: the same incarnation at two resource versions.
+		{name: "one holds a later update", v1: []runtime.Object{atVersion(widget("alpha", "w1", "uid-widget"), "41")},
+			v1beta1: []runtime.Object{betaWidget(adopted(atVersion(widget("alpha", "w1", "uid-widget"), "42")))},
+			want:    ownership.Unavailable, wantReason: readreason.KindSyncPending},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := versionsFixture(t, tc.v1, tc.v1beta1, tc.hold)
@@ -831,6 +847,68 @@ func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 			got := s.Object(w1)
 			if got.State != tc.want || got.Object.APIVersion != tc.wantVersion || got.Gap.Reason != tc.wantReason {
 				t.Fatalf("Widget = %v at %q %+v; want %v at %q reason %q", got.State, got.Object.APIVersion, got.Gap, tc.want, tc.wantVersion, tc.wantReason)
+			}
+		})
+	}
+}
+
+// A version the session didn't read, because nothing watched it when the
+// session chose its versions, may be watched before the session validates and
+// hold what the version it read lacks. The session's answer can't stand: the
+// caller reads again, and a fresh session reads both versions.
+func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatched(t *testing.T) {
+	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
+	for _, first := range []string{"Widget", "Gadget"} {
+		for _, inV1 := range []bool{false, true} {
+			t.Run(fmt.Sprintf("first read a %s, target only in v1 %v", first, inV1), func(t *testing.T) {
+				objects := []runtime.Object{widget("alpha", "anchor", "uid-anchor")}
+				if target := widget("alpha", "target", "uid-target"); inV1 {
+					objects = append(objects, target)
+				} else {
+					objects = append(objects, betaWidget(target))
+				}
+				f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+					f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+						map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"}, objects...)
+				})
+				f.watch(t, widgets)
+				if first == "Gadget" {
+					f.watch(t, gadgets)
+				}
+				source := f.source()
+				s := begin(t, source)
+				s.Object(ref("example.io", first, "alpha", "anchor"))
+				f.watch(t, beta)
+				s.Object(ref("example.io", "Widget", "alpha", "target"))
+				if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
+					t.Fatalf("Validate = %v; the session read v1 alone after v1beta1 came to be watched", err)
+				}
+				if fresh := begin(t, source).Object(ref("example.io", "Widget", "alpha", "target")); fresh.State != ownership.Unavailable {
+					t.Fatalf("a fresh session read %v; the two versions disagree", fresh.State)
+				}
+			})
+		}
+	}
+}
+
+// A search reads each kind at the versions watched when the session chose
+// them, as a read does; a version watched later refuses the session, whether
+// the search covered one namespace or all of them.
+func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatched(t *testing.T) {
+	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
+	for name, domain := range map[string]ownership.Domain{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+					map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
+					betaWidget(widget("alpha", "w1", "uid-w1")))
+			})
+			f.watch(t, widgets)
+			s := begin(t, f.source())
+			s.OwnerCandidates("uid-deploy", domain, 0)
+			f.watch(t, beta)
+			if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
+				t.Fatalf("Validate = %v; the search read v1 alone after v1beta1 came to be watched", err)
 			}
 		})
 	}

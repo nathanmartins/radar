@@ -28,13 +28,35 @@ func membersOf(gk resourceid.GroupKind, u *unstructured.Unstructured) recordedMe
 	case ownership.FluxHelmRelease, ownership.FluxKustomization:
 		list, ok = gitops.FluxMembers(u)
 	}
-	switch {
-	case !ok:
+	if !ok {
 		return recordedMembers{}
-	case appliesHere(gk, u):
-		return recordedMembers{state: ownership.MembersRecorded, MemberList: list}
 	}
-	return recordedMembers{state: ownership.MembersRemote, MemberList: list}
+	return recordedMembers{state: located(gk, u), MemberList: list}
+}
+
+// memberState is membersOf's state alone. A search reads it for every manager
+// whose list names the object; building that list would cost as much as the
+// list is long.
+func memberState(gk resourceid.GroupKind, u *unstructured.Unstructured) ownership.MembershipState {
+	var ok bool
+	switch gk {
+	case ownership.ArgoApplication:
+		ok = gitops.ArgoMembersReadable(u)
+	case ownership.FluxHelmRelease, ownership.FluxKustomization:
+		ok = gitops.FluxMembersReadable(u)
+	}
+	if !ok {
+		return ownership.MembersUnreadable
+	}
+	return located(gk, u)
+}
+
+// located is whether a manager whose list Radar reads applies it here.
+func located(gk resourceid.GroupKind, u *unstructured.Unstructured) ownership.MembershipState {
+	if appliesHere(gk, u) {
+		return ownership.MembersRecorded
+	}
+	return ownership.MembersRemote
 }
 
 // appliesHere reports whether a manager's member list names objects of this
@@ -191,7 +213,7 @@ func (s *session) readMembers(kind ownership.Kind, keys []string) membersRead {
 	keys = append([]string{k8score.UnreadableMembersKey}, keys...)
 	s.dynamicIndexed(q, kind, k8score.GitOpsMembersIndex, keys, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
 		manager := resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: u.GetNamespace(), Name: u.GetName()}
-		switch membersOf(gk, u).state {
+		switch memberState(gk, u) {
 		case ownership.MembersUnreadable:
 			m.unreadable = append(m.unreadable, manager)
 		case ownership.MembersRemote:
