@@ -43,7 +43,7 @@ func TestRecordingManagersAnswerEachObjectOnce(t *testing.T) {
 	}
 	changeManager(t, s, w, app.Ref, func(o *ownershiptest.Object) { o.Members = nil })
 	if after := v.RecordingManagers(cfg.Ref); len(after.Managers) != 1 || after.Managers[0].Ref != app.Ref {
-		t.Fatalf("asked again, Recorders = %+v; want the first answer", after)
+		t.Fatalf("asked again, RecordingManagers = %+v; want the first answer", after)
 	}
 	if err := v.ValidateAnswers(); err != nil {
 		t.Fatal(err)
@@ -162,13 +162,13 @@ func TestRecordingManagersHideGapsOfKindsTheCallerCantRead(t *testing.T) {
 	}
 }
 
-// fixedRecorders answers every Recorders search with answer.
-type fixedRecorders struct {
+// fixedManagers answers every RecordingManagers search with answer.
+type fixedManagers struct {
 	ownership.ReadSession
 	answer ownership.RecordingManagersRead
 }
 
-func (s fixedRecorders) RecordingManagers(resourceid.Ref) ownership.RecordingManagersRead {
+func (s fixedManagers) RecordingManagers(resourceid.Ref) ownership.RecordingManagersRead {
 	return s.answer
 }
 
@@ -196,7 +196,7 @@ func TestRecordingManagersAnswerSearched(t *testing.T) {
 		{"the whole kind loading", ownership.RecordingManagersRead{Gaps: []ownership.Gap{gap("", readreason.KindSyncPending)}}, false},
 		{"another kind loading", ownership.RecordingManagersRead{Gaps: []ownership.Gap{{Kind: ownership.FluxKustomization, Reason: readreason.KindSyncPending}}}, true},
 	} {
-		v := ownership.NewView(fixedRecorders{scan, tc.answer}, ownership.Unrestricted())
+		v := ownership.NewView(fixedManagers{scan, tc.answer}, ownership.Unrestricted())
 		if got := v.RecordingManagers(at("", "ConfigMap", "alpha", "cfg")).Searched(app); got != tc.want {
 			t.Errorf("%s: Searched = %v, want %v", tc.name, got, tc.want)
 		}
@@ -223,7 +223,7 @@ func TestRecordingManagersSearchedCountsGapsTheCallerCantRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := ownership.RecordingManagersRead{Gaps: []ownership.Gap{{Kind: ownership.ArgoApplication, Reason: readreason.KindSyncPending}}}
-	v := ownership.NewView(fixedRecorders{scan, found}, wholeKindUndecided{ownership.Unrestricted()})
+	v := ownership.NewView(fixedManagers{scan, found}, wholeKindUndecided{ownership.Unrestricted()})
 	got := v.RecordingManagers(at("", "ConfigMap", "alpha", "cfg"))
 	if len(got.Gaps) != 0 || got.Searched(at(ownership.ArgoApplication.Group, ownership.ArgoApplication.Kind, "alpha", "app")) {
 		t.Fatalf("gaps %v, searched alpha/app = %v; want no gap shown and the list unsearched", got.Gaps, got.Searched(at(ownership.ArgoApplication.Group, ownership.ArgoApplication.Kind, "alpha", "app")))
@@ -296,7 +296,7 @@ func BenchmarkRecordersOfManyUnreadableManagers(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				if got := ownership.NewView(fixedRecorders{scan, found}, ownership.Unrestricted()).RecordingManagers(cfg); len(got.Unreadable) != n {
+				if got := ownership.NewView(fixedManagers{scan, found}, ownership.Unrestricted()).RecordingManagers(cfg); len(got.Unreadable) != n {
 					b.Fatal(len(got.Unreadable))
 				}
 			}

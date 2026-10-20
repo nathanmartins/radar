@@ -70,12 +70,12 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 	// itself. The graph draws a HelmRelease's edges from its members' labels,
 	// and an Application's or Kustomization's from the same status list, for
 	// the workload and network kinds it draws.
-	recorders := v.RecordingManagers(subject)
-	for _, m := range recorders.Managers {
+	managers := v.RecordingManagers(subject)
+	for _, m := range managers.Managers {
 		rel.Managers = appendResourceRef(rel.Managers, refOf(m.Ref))
 	}
 	labelled := func(r resourceid.Ref) bool {
-		return slices.Contains(recorders.Unreadable, r) || !recorders.Searched(r)
+		return slices.Contains(managers.Unreadable, r) || !managers.Searched(r)
 	}
 
 	// Any other manages edge is management only with evidence that it isn't

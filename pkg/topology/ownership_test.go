@@ -666,10 +666,10 @@ func (a wholeKindUndecided) CanRead(gk resourceid.GroupKind, namespace string) o
 	return a.Access.CanRead(gk, namespace)
 }
 
-// stalledRecorders answers every Recorders search with Applications unread.
-type stalledRecorders struct{ ownership.ReadSession }
+// stalledManagers answers every RecordingManagers search with Applications unread.
+type stalledManagers struct{ ownership.ReadSession }
 
-func (stalledRecorders) RecordingManagers(resourceid.Ref) ownership.RecordingManagersRead {
+func (stalledManagers) RecordingManagers(resourceid.Ref) ownership.RecordingManagersRead {
 	return ownership.RecordingManagersRead{Gaps: []ownership.Gap{{Kind: ownership.ArgoApplication, Reason: readreason.KindSyncPending}}}
 }
 
@@ -684,7 +684,7 @@ func TestApplyOwnershipKeepsTheEdgeOfAManagerBehindAHiddenGap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := ownership.NewView(stalledRecorders{s}, wholeKindUndecided{ownership.Unrestricted()})
+	v := ownership.NewView(stalledManagers{s}, wholeKindUndecided{ownership.Unrestricted()})
 	rel := &Relationships{manageSources: []ResourceRef{refOf(app.Ref)}}
 	ApplyOwnership(rel, v, fetched(t, w, cfg.Ref))
 	if err := v.ValidateAnswers(); err != nil {

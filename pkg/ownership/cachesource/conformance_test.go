@@ -109,11 +109,11 @@ func viewAnswers(v *ownership.View, ref resourceid.Ref) []any {
 		}
 		out = append(out, members.Membership, members.Missing, members.Withheld, members.Unknown, members.Gaps)
 	}
-	recorders := v.RecordingManagers(ref)
-	for _, m := range recorders.Managers {
+	managers := v.RecordingManagers(ref)
+	for _, m := range managers.Managers {
 		out = append(out, ident(m))
 	}
-	out = append(out, recorders.Unreadable, recorders.TargetUnresolvable, recorders.Gaps)
+	out = append(out, managers.Unreadable, managers.TargetUnresolvable, managers.Gaps)
 	return out
 }
 
