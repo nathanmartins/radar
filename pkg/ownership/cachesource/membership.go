@@ -70,14 +70,14 @@ func appliesHere(gk resourceid.GroupKind, u *unstructured.Unstructured) bool {
 	return gitops.FluxTargetsLocalCluster(u)
 }
 
-func (s *session) Inventory(manager resourceid.Ref) ownership.InventoryRead {
+func (s *session) Members(manager resourceid.Ref) ownership.MembersRead {
 	gk := manager.GroupKind()
 	if !ownership.IsRecordingManager(gk) {
-		return ownership.InventoryRead{Manager: unavailable(manager, readreason.ReadError)}
+		return ownership.MembersRead{Manager: unavailable(manager, readreason.ReadError)}
 	}
 	var members recordedMembers
 	read := s.readObject(manager, func(u *unstructured.Unstructured) { members = membersOf(gk, u) })
-	r := ownership.InventoryRead{Manager: read}
+	r := ownership.MembersRead{Manager: read}
 	if read.State != ownership.Present {
 		return r
 	}
@@ -87,7 +87,7 @@ func (s *session) Inventory(manager resourceid.Ref) ownership.InventoryRead {
 	}
 	r.Members = make([]resourceid.Ref, 0, len(members.Entries))
 	for _, e := range members.Entries {
-		r.Members = append(r.Members, s.align(e, members.Destination))
+		r.Members = append(r.Members, s.align(e, members.DestinationNamespace))
 	}
 	slices.SortFunc(r.Members, compareRefs)
 	r.Members = slices.Compact(r.Members)
@@ -124,9 +124,9 @@ func (s *session) align(e gitops.Member, destination string) resourceid.Ref {
 	return ref
 }
 
-// readings returns the GitOpsMembersIndex keys under which an entry naming ref
+// placements returns the GitOpsMembersIndex keys under which an entry naming ref
 // is filed, as its kind's scope says, or why no entry can name ref.
-func (s *session) readings(ref resourceid.Ref) ([]string, readreason.Code) {
+func (s *session) placements(ref resourceid.Ref) ([]string, readreason.Code) {
 	if ref.Kind == "" || ref.Name == "" {
 		return nil, readreason.ReadError
 	}
@@ -152,15 +152,15 @@ func (s *session) readings(ref resourceid.Ref) ([]string, readreason.Code) {
 	return []string{k8score.MemberKey(k8score.MemberAsRecorded, ref.Group, ref.Kind, "", ref.Name), k8score.MemberKey(k8score.MemberClusterScoped, ref.Group, ref.Kind, "", ref.Name)}, ""
 }
 
-func (s *session) Recorders(ref resourceid.Ref) ownership.RecorderRead {
-	keys, reason := s.readings(ref)
+func (s *session) RecordingManagers(ref resourceid.Ref) ownership.RecordingManagersRead {
+	keys, reason := s.placements(ref)
 	if reason != "" {
-		return ownership.RecorderRead{Unnamed: true, Gaps: []ownership.Gap{{Kind: ref.GroupKind(), Namespace: ref.Namespace, Reason: reason}}}
+		return ownership.RecordingManagersRead{TargetUnresolvable: true, Gaps: []ownership.Gap{{Kind: ref.GroupKind(), Namespace: ref.Namespace, Reason: reason}}}
 	}
 	q := &search{domain: ownership.Everywhere()}
 	var recorders []candidate
 	var elsewhere, unreadable []resourceid.Ref
-	for _, gk := range ownership.RecordingManagers() {
+	for _, gk := range ownership.RecordingManagerKinds() {
 		kind, served := s.catalog.Kind(gk)
 		if !served {
 			// Not installed, unless discovery missed it.
@@ -175,18 +175,18 @@ func (s *session) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 		unreadable = append(unreadable, m.unreadable...)
 		q.gaps = append(q.gaps, m.gaps...)
 	}
-	var r ownership.RecorderRead
+	var r ownership.RecordingManagersRead
 	slices.SortFunc(recorders, func(a, b candidate) int { return compareRefs(a.ref, b.ref) })
 	recorders = slices.CompactFunc(recorders, func(a, b candidate) bool { return a.ref == b.ref })
 	for _, c := range recorders {
 		if read := observe(c.ref, c.apiVersion, c.obj); read.State == ownership.Present {
-			r.Recorders = append(r.Recorders, read.Object)
+			r.Managers = append(r.Managers, read.Object)
 		} else {
 			q.gaps = append(q.gaps, read.Gap)
 		}
 	}
 	slices.SortFunc(elsewhere, compareRefs)
-	r.Elsewhere = slices.Compact(elsewhere)
+	r.Remote = slices.Compact(elsewhere)
 	slices.SortFunc(unreadable, compareRefs)
 	r.Unreadable = slices.Compact(unreadable)
 	slices.SortFunc(q.gaps, compareGaps)
@@ -203,10 +203,10 @@ type membersRead struct {
 
 // readMembers reads the managers of kind filed under the unreadable key or any
 // of keys, each store of kind once for all of them. A manager that changes
-// while Recorders runs, from an unreadable list to one naming the object or
-// from one reading of its entry to another, is then found in one of its
+// while RecordingManagers runs, from an unreadable list to one naming the object or
+// from one placement of its entry to another, is then found in one of its
 // states: reads of one key at a time could find it in none.
-func (s *session) readMembers(kind ownership.Kind, keys []string) membersRead {
+func (s *session) readMembers(kind ownership.CatalogKind, keys []string) membersRead {
 	gk := kind.GroupKind
 	var m membersRead
 	q := &search{domain: ownership.Everywhere()}
@@ -222,8 +222,8 @@ func (s *session) readMembers(kind ownership.Kind, keys []string) membersRead {
 			m.recorders = append(m.recorders, candidate{ref: manager, apiVersion: gvr.GroupVersion().String(), obj: u})
 		}
 	})
-	if s.recordersRead != nil {
-		s.recordersRead(gk, keys)
+	if s.recordingManagersRead != nil {
+		s.recordingManagersRead(gk, keys)
 	}
 	m.gaps = q.gaps
 	return m

@@ -40,10 +40,10 @@ func TestOwnershipAccessDecidesAKindInAnyNamespace(t *testing.T) {
 		if beta {
 			want = ownership.Allowed
 		}
-		if got := a.Read(secret, ""); got != want {
+		if got := a.CanRead(secret, ""); got != want {
 			t.Errorf("%s: Read(Secret) in any namespace = %v, want %v", name, got, want)
 		}
-		if got := a.Read(secret, "alpha"); got != ownership.Denied {
+		if got := a.CanRead(secret, "alpha"); got != ownership.Denied {
 			t.Errorf("%s: Read(Secret, alpha) = %v, want denied", name, got)
 		}
 	}
@@ -59,8 +59,8 @@ func TestOwnershipAccessCannotTellWithoutTheClustersNamespaces(t *testing.T) {
 	ctx := pkgauth.ContextWithUser(context.Background(), &pkgauth.User{Username: "gina"})
 	a := ownershipAccess(ctx, ownership.NewCatalog(nil, true)).(*mcpAccess)
 	a.clusterNamespaces = func(context.Context) []string { return nil }
-	if got := a.Read(resourceid.GroupKind{Kind: "Secret"}, ""); got != ownership.Undecided {
-		t.Errorf("Read(Secret) in any namespace without the namespace list = %v, want undecided", got)
+	if got := a.CanRead(resourceid.GroupKind{Kind: "Secret"}, ""); got != ownership.Undecided {
+		t.Errorf("CanRead(Secret) in any namespace without the namespace list = %v, want undecided", got)
 	}
 }
 
@@ -138,8 +138,8 @@ func TestOwnershipAccessKeepsAGapOnAnAmbiguousKind(t *testing.T) {
 	}
 	foo := resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}
 	a := ownershipAccess(ctx, s.Catalog())
-	if got := a.Read(foo, "alpha"); got != ownership.Undecided {
-		t.Fatalf("Read(Foo, alpha) = %v, want undecided", got)
+	if got := a.CanRead(foo, "alpha"); got != ownership.Undecided {
+		t.Fatalf("CanRead(Foo, alpha) = %v, want undecided", got)
 	}
 	got := ownership.NewView(s, a).Children(owner.Ref, 0)
 	if got.Complete() || !slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == foo }) {

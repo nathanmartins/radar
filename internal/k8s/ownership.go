@@ -19,7 +19,7 @@ import (
 
 // ownershipSource reads ownership from the caches current when a session
 // begins. A session pins them, so a context switch that replaces them fails
-// its Validate instead of mixing two clusters' answers.
+// its ValidateStores instead of mixing two clusters' answers.
 var ownershipSource = cachesource.New(func() cachesource.Caches {
 	var c cachesource.Caches
 	if rc := GetResourceCache(); rc != nil {
@@ -56,8 +56,8 @@ func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation,
 // still naming them through the typed cache the session reads. A ReplicaSet is
 // judged only as the incarnation the view captured as a child: one replaced
 // at its name since stays among Children.
-func splitHistory(subject resourceid.Ref, owner metav1.Object) func(*topology.Relationships, *ownership.View, ownership.Session) {
-	return func(rel *topology.Relationships, v *ownership.View, s ownership.Session) {
+func splitHistory(subject resourceid.Ref, owner metav1.Object) func(*topology.Relationships, *ownership.View, ownership.ReadSession) {
+	return func(rel *topology.Relationships, v *ownership.View, s ownership.ReadSession) {
 		typed, ok := cachesource.TypedCache(s)
 		if !ok || owner == nil {
 			return
@@ -99,7 +99,7 @@ func AnswerOwner(rel *topology.Relationships, fetched ownership.Observation, acc
 // answerOwnership applies the view's answer to rel, then present (when set)
 // with the view and its session, before validating: a refused answer takes
 // what present read with it.
-func answerOwnership(source ownership.Source, apply func(*topology.Relationships, *ownership.View, ownership.Observation), present func(*topology.Relationships, *ownership.View, ownership.Session), rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
+func answerOwnership(source ownership.Source, apply func(*topology.Relationships, *ownership.View, ownership.Observation), present func(*topology.Relationships, *ownership.View, ownership.ReadSession), rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
 	reason := readreason.KindSyncPending
 	for range 2 {
 		session, err := source.Begin()
@@ -118,7 +118,7 @@ func answerOwnership(source ownership.Source, apply func(*topology.Relationships
 		if present != nil {
 			present(rel, v, session)
 		}
-		err = v.Validate()
+		err = v.ValidateAnswers()
 		switch {
 		case err == nil:
 			return

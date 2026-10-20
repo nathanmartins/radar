@@ -82,7 +82,7 @@ type readFor func(resourceid.Ref) (ObjectRead, Decision)
 // reference names an owner by group, kind and name; the owner is in the
 // dependent's namespace when its kind is namespaced, cluster-wide otherwise,
 // and only its UID tells one incarnation from the next.
-func ResolveOwner(s Session, dependent Observation, ref metav1.OwnerReference) OwnerResolution {
+func ResolveOwner(s ReadSession, dependent Observation, ref metav1.OwnerReference) OwnerResolution {
 	return resolveOwner(s.Catalog(), dependent, ref, func(owner resourceid.Ref) (ObjectRead, Decision) {
 		return s.Object(owner), Allowed
 	})

@@ -124,7 +124,7 @@ func charDrawer(t *testing.T, f *charFixture) []byte {
 		canonicalRefLists(reflect.ValueOf(rel))
 		records = append(records, record{Root: o.key(), Relationships: rel})
 	}
-	if err := v.Validate(); err != nil {
+	if err := v.ValidateAnswers(); err != nil {
 		t.Fatalf("the caches changed while the drawer answers were read: %v", err)
 	}
 	sort.SliceStable(records, func(i, j int) bool { return records[i].Root < records[j].Root })

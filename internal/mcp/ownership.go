@@ -35,7 +35,7 @@ type mcpAccessKey struct {
 	namespace string
 }
 
-func (a *mcpAccess) Read(kind resourceid.GroupKind, namespace string) ownership.Decision {
+func (a *mcpAccess) CanRead(kind resourceid.GroupKind, namespace string) ownership.Decision {
 	key := mcpAccessKey{kind: kind, namespace: namespace}
 	if d, ok := a.decided[key]; ok {
 		return d
@@ -97,5 +97,5 @@ func (a *mcpAccess) Namespaces() ([]string, bool) { return a.namespaces, a.names
 
 // Everything and AllKindsIn would each take a check per kind; a user is
 // taken to read less than everything, which only marks answers narrowed.
-func (a *mcpAccess) Everything() bool       { return false }
-func (a *mcpAccess) AllKindsIn(string) bool { return false }
+func (a *mcpAccess) CanReadEverything() bool       { return false }
+func (a *mcpAccess) CanReadAllKindsIn(string) bool { return false }

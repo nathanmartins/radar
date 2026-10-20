@@ -16,28 +16,28 @@ import (
 // It captures each object once, whether it read the object or found it
 // searching an owner's dependents, and answers every question from that
 // capture, so its answers agree with each other even while the cluster
-// changes; Recorders says where its answers about different objects fall
+// changes; RecordingManagers says where its answers about different objects fall
 // short of that. It searches each owner's dependents and reads each manager's
 // member list at most once. An object it first reads after a search that
 // should have found it means the cluster changed in a way one capture can't
-// reconcile, and Validate says so. It never reads an object the caller may
+// reconcile, and ValidateAnswers says so. It never reads an object the caller may
 // not read, and says nothing of whether there is one. Its answers hold only
-// if Validate passes once they are built. They share the view's captures, so
+// if ValidateAnswers passes once they are built. They share the view's captures, so
 // they must not be modified. A View is not safe for concurrent use.
 type View struct {
-	session Session
+	session ReadSession
 	access  Access
 	reads   map[resourceid.Ref]accessRead
 	// named holds the objects the view captured under each UID their owner
 	// references name.
 	named       map[types.UID][]resourceid.Ref
-	searches    map[resourceid.Ref]CandidateRead
+	searches    map[resourceid.Ref]DependentCandidatesRead
 	searched    map[types.UID]searchScope
-	inventories map[resourceid.Ref]InventoryRead
-	// recorders holds the answer for each object Recorders was asked about,
-	// and recorderSearches the search behind it.
-	recorders        map[resourceid.Ref]RecordersAnswer
-	recorderSearches map[resourceid.Ref]recorderSearch
+	inventories map[resourceid.Ref]MembersRead
+	// managerAnswers holds the answer for each object RecordingManagers was
+	// asked about, and managerSearches the search behind it.
+	managerAnswers  map[resourceid.Ref]RecordingManagersAnswer
+	managerSearches map[resourceid.Ref]managerSearch
 	// readable holds, for each manager the caller may read that a search or
 	// an inventory read, whether its member list could be read.
 	readable map[resourceid.Ref]bool
@@ -47,18 +47,18 @@ type View struct {
 	changed    bool
 }
 
-// recorderSearch is one search for the managers recording an object, with
-// the managers the caller may read it found as recorders and as unreadable.
-type recorderSearch struct {
-	found      RecorderRead
-	recorders  map[resourceid.Ref]bool
+// managerSearch is one search for the managers recording an object, with
+// the managers the caller may read it found as listing it and as unreadable.
+type managerSearch struct {
+	found      RecordingManagersRead
+	managers   map[resourceid.Ref]bool
 	unreadable map[resourceid.Ref]bool
 }
 
 // searchScope is where the view answered for an owner's children, and the
 // gaps that answer reported.
 type searchScope struct {
-	domain Domain
+	domain SearchScope
 	gaps   []Gap
 }
 
@@ -68,28 +68,28 @@ type accessRead struct {
 }
 
 // NewView answers for the caller access describes, from s.
-func NewView(s Session, access Access) *View {
+func NewView(s ReadSession, access Access) *View {
 	return &View{
-		session:          s,
-		access:           access,
-		reads:            map[resourceid.Ref]accessRead{},
-		named:            map[types.UID][]resourceid.Ref{},
-		searches:         map[resourceid.Ref]CandidateRead{},
-		searched:         map[types.UID]searchScope{},
-		inventories:      map[resourceid.Ref]InventoryRead{},
-		recorders:        map[resourceid.Ref]RecordersAnswer{},
-		recorderSearches: map[resourceid.Ref]recorderSearch{},
-		readable:         map[resourceid.Ref]bool{},
-		memberSets:       map[resourceid.Ref]map[resourceid.Ref]bool{},
+		session:         s,
+		access:          access,
+		reads:           map[resourceid.Ref]accessRead{},
+		named:           map[types.UID][]resourceid.Ref{},
+		searches:        map[resourceid.Ref]DependentCandidatesRead{},
+		searched:        map[types.UID]searchScope{},
+		inventories:     map[resourceid.Ref]MembersRead{},
+		managerAnswers:  map[resourceid.Ref]RecordingManagersAnswer{},
+		managerSearches: map[resourceid.Ref]managerSearch{},
+		readable:        map[resourceid.Ref]bool{},
+		memberSets:      map[resourceid.Ref]map[resourceid.Ref]bool{},
 	}
 }
 
-// Validate reports whether every store the view's answers came from is still
-// the one serving them (see Session.Validate), and returns ErrObjectsChanged
+// ValidateAnswers reports whether every store the view's answers came from is still
+// the one serving them (see Session.ValidateAnswers), and returns ErrObjectsChanged
 // if an object the view read contradicts a search it made, a seed replaced a
 // read an answer used, or a manager changed between its two reads.
-func (v *View) Validate() error {
-	if err := v.session.Validate(); err != nil {
+func (v *View) ValidateAnswers() error {
+	if err := v.session.ValidateStores(); err != nil {
 		return err
 	}
 	if v.changed {
@@ -103,7 +103,7 @@ func (v *View) read(ref resourceid.Ref) (ObjectRead, Decision) {
 	if r, ok := v.reads[ref]; ok {
 		return r.read, r.may
 	}
-	r := accessRead{may: v.access.Read(ref.GroupKind(), ref.Namespace)}
+	r := accessRead{may: v.access.CanRead(ref.GroupKind(), ref.Namespace)}
 	if r.may == Allowed {
 		r.read = v.session.Object(ref)
 		if r.read.State == Present {
@@ -155,7 +155,7 @@ func covers(g Gap, ref resourceid.Ref, collected bool) bool {
 // fetched it from the API and Radar doesn't collect its kind. A read that
 // holds the object stands, as does an excluded one or one the caller may not
 // make. Seed an object before asking about it: replacing a read an earlier
-// answer used makes Validate fail. The view keeps o, which must not be
+// answer used makes ValidateAnswers fail. The view keeps o, which must not be
 // modified afterwards.
 func (v *View) Seed(o Observation) {
 	_, answered := v.reads[o.Ref]
@@ -208,10 +208,10 @@ func (v *View) References(ref resourceid.Ref) (Subject, []OwnerResolution) {
 // its only reference when it has no controller.
 type OwnerAnswer struct {
 	Subject Subject
-	// Index is the reference's position among the object's owner references,
-	// or -1 when it has no such reference: none at all, or several without a
-	// controller (Several).
-	Index      int
+	// Reference is the owner reference chosen, one of the subject's own. It is
+	// nil when there is none: no owner references at all, or several without
+	// a controller (Several).
+	Reference  *metav1.OwnerReference
 	Resolution OwnerResolution
 	Several    bool
 }
@@ -221,7 +221,7 @@ type OwnerAnswer struct {
 // controller never gives way to a weaker owner.
 func (v *View) Owner(ref resourceid.Ref) OwnerAnswer {
 	subject, resolutions := v.References(ref)
-	a := OwnerAnswer{Subject: subject, Index: -1}
+	a := OwnerAnswer{Subject: subject}
 	if !subject.Present() {
 		return a
 	}
@@ -234,7 +234,7 @@ func (v *View) Owner(ref resourceid.Ref) OwnerAnswer {
 		a.Several = len(refs) > 1
 		return a
 	}
-	a.Index, a.Resolution = i, resolutions[i]
+	a.Reference, a.Resolution = &refs[i], resolutions[i]
 	return a
 }
 
@@ -242,21 +242,14 @@ func isController(ref metav1.OwnerReference) bool {
 	return ref.Controller != nil && *ref.Controller
 }
 
-// Child is an object whose owner reference names its owner's current
-// incarnation.
-type Child struct {
-	Observation
-	// Controller: the reference is the child's controller reference.
-	Controller bool
-}
-
 // ChildrenAnswer is what an object owns, as one caller may see it.
 type ChildrenAnswer struct {
 	Subject Subject
-	// Children are ordered by group, kind, namespace and name.
-	Children []Child
+	// Children are the objects whose owner reference names the subject's
+	// current incarnation, ordered by group, kind, namespace and name.
+	Children []Observation
 	// Gaps are the parts of the search the source couldn't read (see
-	// CandidateRead.Gaps), objects the search found that the view couldn't
+	// DependentCandidatesRead.Gaps), objects the search found that the view couldn't
 	// read, and references to the subject's UID that may resolve to it but
 	// couldn't be resolved, such as one at a version discovery doesn't list.
 	Gaps []Gap
@@ -293,11 +286,11 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	if ref.Namespace == "" {
 		namespaces, all = v.access.Namespaces()
 	}
-	domain := Domain{AllNamespaces: all, Namespaces: namespaces, ClusterScoped: ref.Namespace == ""}
+	domain := SearchScope{AllNamespaces: all, Namespaces: namespaces, IncludeClusterScoped: ref.Namespace == ""}
 	a.Narrowed = v.narrows(ref)
 	found, searched := v.searches[ref]
 	if !searched {
-		found = v.session.OwnerCandidates(owner.UID, domain, 0)
+		found = v.session.DependentCandidates(owner.UID, domain, 0)
 		v.searches[ref] = found
 	}
 	candidates, unread, undecided := v.candidates(found, owner.UID, domain)
@@ -308,7 +301,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	// children.
 	var unresolved []Gap
 	for _, c := range candidates {
-		child, names := Child{Observation: c}, false
+		names := false
 		var unknown []Gap
 		for _, r := range c.OwnerReferences {
 			if r.UID != owner.UID {
@@ -317,7 +310,6 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			switch res := v.resolve(c, r); {
 			case res.State == OwnerFound && res.Ref == ref:
 				names = true
-				child.Controller = child.Controller || isController(r)
 			case res.State == OwnerUnknown && mayResolveTo(res, r.Name, ref):
 				unknown = append(unknown, res.Gap)
 			}
@@ -330,7 +322,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			a.Truncated = true
 			break
 		}
-		a.Children = append(a.Children, child)
+		a.Children = append(a.Children, c)
 	}
 	for _, g := range found.Gaps {
 		if v.coversReadable(g, domain) {
@@ -374,11 +366,11 @@ func mayResolveTo(res OwnerResolution, name string, ref resourceid.Ref) bool {
 // could tell whether they exist: the search says they name uid, so leaving
 // them out says nothing of whether they are children. undecided reports a
 // candidate whose access check failed.
-func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (out []Observation, unread []Gap, undecided bool) {
+func (v *View) candidates(found DependentCandidatesRead, uid types.UID, domain SearchScope) (out []Observation, unread []Gap, undecided bool) {
 	for _, c := range found.Candidates {
 		r, read := v.reads[c.Ref]
 		if !read {
-			r = accessRead{may: v.access.Read(c.Ref.GroupKind(), c.Ref.Namespace)}
+			r = accessRead{may: v.access.CanRead(c.Ref.GroupKind(), c.Ref.Namespace)}
 			if r.may == Allowed {
 				r.read = ObjectRead{State: Present, Object: c}
 				v.captured(c, true)
@@ -401,13 +393,13 @@ func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (ou
 
 // searchedIn reports whether a dependents search of domain covers ref's kind
 // and place.
-func (v *View) searchedIn(ref resourceid.Ref, domain Domain) bool {
+func (v *View) searchedIn(ref resourceid.Ref, domain SearchScope) bool {
 	k, known := v.session.Catalog().Kind(ref.GroupKind())
-	if !known || !k.GarbageCollected || IsEvent(ref.GroupKind()) {
+	if !known || !k.HasGCVerbs || IsEvent(ref.GroupKind()) {
 		return false
 	}
 	if !k.Namespaced {
-		return domain.ClusterScoped
+		return domain.IncludeClusterScoped
 	}
 	return domain.AllNamespaces || slices.Contains(domain.Namespaces, ref.Namespace)
 }
@@ -416,63 +408,60 @@ func (v *View) searchedIn(ref resourceid.Ref, domain Domain) bool {
 // within domain, so leaving it unread may have hidden a child. A gap on a
 // namespaced kind without a namespace covers every namespace of the domain,
 // and counts if the caller may read the kind in any of them.
-func (v *View) coversReadable(g Gap, domain Domain) bool {
+func (v *View) coversReadable(g Gap, domain SearchScope) bool {
 	if g.Kind.Kind == "" {
 		return true
 	}
 	if g.Namespace != "" {
-		return v.access.Read(g.Kind, g.Namespace) != Denied
+		return v.access.CanRead(g.Kind, g.Namespace) != Denied
 	}
 	k, known := v.session.Catalog().Kind(g.Kind)
 	if !known || !k.Namespaced {
-		return v.access.Read(g.Kind, "") != Denied
+		return v.access.CanRead(g.Kind, "") != Denied
 	}
 	if domain.AllNamespaces {
-		return v.access.Read(g.Kind, "") != Denied
+		return v.access.CanRead(g.Kind, "") != Denied
 	}
-	return slices.ContainsFunc(domain.Namespaces, func(ns string) bool { return v.access.Read(g.Kind, ns) != Denied })
+	return slices.ContainsFunc(domain.Namespaces, func(ns string) bool { return v.access.CanRead(g.Kind, ns) != Denied })
 }
 
 // narrows reports whether the caller may read less than every place ref's
 // children could be: anywhere for a cluster-scoped owner, its namespace for a
 // namespaced one.
 func (v *View) narrows(ref resourceid.Ref) bool {
-	if v.access.Everything() {
+	if v.access.CanReadEverything() {
 		return false
 	}
-	return ref.Namespace == "" || !v.access.AllKindsIn(ref.Namespace)
+	return ref.Namespace == "" || !v.access.CanReadAllKindsIn(ref.Namespace)
 }
 
-// RootAnswer is where an object's chain of controller references ends.
-type RootAnswer struct {
+// ControllerChainAnswer is the chain of controller references from an object
+// up to the first one that can't be followed.
+type ControllerChainAnswer struct {
 	Subject Subject
-	// Root is the last object the walk reached: the subject itself when its
-	// controller reference can't be followed.
-	Root resourceid.Ref
-	// Chain is every object the walk reached, from the subject to Root.
+	// Chain is every object the walk reached, from the subject on.
 	Chain []resourceid.Ref
-	// Stop is the controller reference the walk couldn't follow. It is nil
-	// when Root has no controller reference, and when the walk ends in a
-	// Cycle or is Truncated. A Node controller ends the walk (Node), outside
-	// Chain, and is Stop only when it isn't found.
-	Stop *OwnerResolution
-	Node bool
-	// Cycle: the references loop. Root is the smallest object in the loop
-	// itself, so every object on the loop or feeding it has the same root.
+	// UnfollowedReference is the controller reference the walk couldn't
+	// follow. It is nil when the last object in Chain has no controller
+	// reference, and when the walk ends in a Cycle or is Truncated. A Node
+	// controller ends the walk outside Chain, and is UnfollowedReference only
+	// when it isn't found.
+	UnfollowedReference *OwnerResolution
+	// Cycle: the references loop back into Chain.
 	Cycle bool
 	// Truncated: the chain is longer than maxControllerDepth references,
-	// which only corrupt references produce; Root is where the walk gave up.
+	// which only corrupt references produce.
 	Truncated bool
 }
 
 // maxControllerDepth bounds the walk; real chains are a few hops deep.
 const maxControllerDepth = 16
 
-// ControllerRoot follows ref's controller references to the first it can't
+// ControllerChain follows ref's controller references to the first it can't
 // follow, and says why it stopped.
-func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
+func (v *View) ControllerChain(ref resourceid.Ref) ControllerChainAnswer {
 	subject := v.subject(ref)
-	a := RootAnswer{Subject: subject, Root: ref}
+	a := ControllerChainAnswer{Subject: subject}
 	if !subject.Present() {
 		return a
 	}
@@ -485,18 +474,17 @@ func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
 		}
 		r := v.resolve(current, current.OwnerReferences[i])
 		if r.Ref.Group == "" && r.Ref.Kind == "Node" {
-			a.Node = true
 			if r.State != OwnerFound {
-				a.Stop = &r
+				a.UnfollowedReference = &r
 			}
 			return a
 		}
 		if r.State != OwnerFound {
-			a.Stop = &r
+			a.UnfollowedReference = &r
 			return a
 		}
-		if at := slices.Index(a.Chain, r.Ref); at >= 0 {
-			a.Root, a.Cycle = slices.MinFunc(a.Chain[at:], compareRefs), true
+		if slices.Contains(a.Chain, r.Ref) {
+			a.Cycle = true
 			return a
 		}
 		if len(a.Chain) > maxControllerDepth {
@@ -504,7 +492,7 @@ func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
 			return a
 		}
 		a.Chain = append(a.Chain, r.Ref)
-		a.Root, current = r.Ref, r.Owner
+		current = r.Owner
 	}
 }
 
@@ -542,7 +530,7 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 	}
 	inventory, read := v.inventories[manager]
 	if !read {
-		inventory = v.session.Inventory(manager)
+		inventory = v.session.Members(manager)
 		v.inventories[manager] = inventory
 	}
 	captured := subject.Read.Object
@@ -559,8 +547,8 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 		a.Gaps = append(a.Gaps, Gap{Kind: manager.GroupKind(), Namespace: manager.Namespace, Reason: readreason.KindSyncPending})
 		return a
 	}
-	for ref, search := range v.recorderSearches {
-		if !v.recordersAgree(search, ref, manager, inventory) {
+	for ref, search := range v.managerSearches {
+		if !v.managersAgree(search, ref, manager, inventory) {
 			v.changed = true
 		}
 	}
@@ -597,19 +585,19 @@ func compareGaps(a, b Gap) int {
 	return cmp.Or(cmp.Compare(a.Kind.Group, b.Kind.Group), cmp.Compare(a.Kind.Kind, b.Kind.Kind), cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Reason, b.Reason))
 }
 
-// RecordersAnswer is what the local GitOps managers say of one object, as one
+// RecordingManagersAnswer is what the local GitOps managers say of one object, as one
 // caller may see them.
-type RecordersAnswer struct {
-	// Recorders are the managers the caller may read whose member lists name
+type RecordingManagersAnswer struct {
+	// Managers are the managers the caller may read whose member lists name
 	// the object, sorted.
-	Recorders []Observation
+	Managers []Observation
 	// Unreadable are the managers the caller may read whose member lists
 	// can't be read, any of which may name the object, sorted.
 	Unreadable []resourceid.Ref
-	// Unnamed reports that the object can't be named, so no manager's list
-	// was searched; see RecorderRead.Unnamed.
-	Unnamed bool
-	// Gaps are the search's gaps the caller may read; see RecorderRead.Gaps.
+	// TargetUnresolvable reports that the object can't be named, so no manager's list
+	// was searched; see RecordingManagersRead.TargetUnresolvable.
+	TargetUnresolvable bool
+	// Gaps are the search's gaps the caller may read; see RecordingManagersRead.Gaps.
 	Gaps []Gap
 	// searchGaps are all the search's gaps, for Searched.
 	searchGaps []Gap
@@ -620,39 +608,39 @@ type RecordersAnswer struct {
 // no gap the search reported, whether or not the caller may read it, leaves
 // manager's kind unread where manager is. A gap across all namespaces that
 // stands for the namespaces Radar doesn't collect leaves manager's own read.
-func (a RecordersAnswer) Searched(manager resourceid.Ref) bool {
-	return !a.Unnamed && !slices.ContainsFunc(a.searchGaps, func(g Gap) bool { return covers(g, manager, true) })
+func (a RecordingManagersAnswer) Searched(manager resourceid.Ref) bool {
+	return !a.TargetUnresolvable && !slices.ContainsFunc(a.searchGaps, func(g Gap) bool { return covers(g, manager, true) })
 }
 
-// Recorders finds the local managers whose member lists name ref, among those
+// RecordingManagers finds the local managers whose member lists name ref, among those
 // the caller may read; a manager the caller may not read takes no part. Asked
 // again for ref, it gives the same answer.
 //
 // A manager it finds listing ref is captured as found and must match any other
 // capture of it. Whether a manager's list can be read must agree across every
 // search and member-list read. And a member list the view read must agree with
-// each search, in either order. Validate reports any disagreement. A search for
+// each search, in either order. ValidateAnswers reports any disagreement. A search for
 // another object reads the index again, so when the view read no member list
 // of a manager, a change to that list between two searches is caught only if a
 // search returns the manager at another version or in another state.
-func (v *View) Recorders(ref resourceid.Ref) RecordersAnswer {
-	if a, asked := v.recorders[ref]; asked {
+func (v *View) RecordingManagers(ref resourceid.Ref) RecordingManagersAnswer {
+	if a, asked := v.managerAnswers[ref]; asked {
 		return a
 	}
-	found := v.session.Recorders(ref)
-	a := RecordersAnswer{Unnamed: found.Unnamed, searchGaps: found.Gaps}
+	found := v.session.RecordingManagers(ref)
+	a := RecordingManagersAnswer{TargetUnresolvable: found.TargetUnresolvable, searchGaps: found.Gaps}
 	for _, g := range found.Gaps {
 		// A gap the caller may not read would say what Radar collects where
 		// the caller can't look.
-		if v.access.Read(g.Kind, g.Namespace) == Allowed {
+		if v.access.CanRead(g.Kind, g.Namespace) == Allowed {
 			a.Gaps = append(a.Gaps, g)
 		}
 	}
-	search := recorderSearch{found: found, recorders: map[resourceid.Ref]bool{}, unreadable: map[resourceid.Ref]bool{}}
-	for _, m := range found.Recorders {
+	search := managerSearch{found: found, managers: map[resourceid.Ref]bool{}, unreadable: map[resourceid.Ref]bool{}}
+	for _, m := range found.Managers {
 		r, read := v.reads[m.Ref]
 		if !read {
-			r = accessRead{may: v.access.Read(m.Ref.GroupKind(), m.Ref.Namespace)}
+			r = accessRead{may: v.access.CanRead(m.Ref.GroupKind(), m.Ref.Namespace)}
 			if r.may == Allowed {
 				r.read = ObjectRead{State: Present, Object: m}
 				v.captured(m, true)
@@ -662,16 +650,16 @@ func (v *View) Recorders(ref resourceid.Ref) RecordersAnswer {
 		if r.may != Allowed {
 			continue
 		}
-		search.recorders[m.Ref] = true
+		search.managers[m.Ref] = true
 		v.listRead(m.Ref, true)
 		if r.read.State != Present || r.read.Object.UID != m.UID || r.read.Object.ResourceVersion != m.ResourceVersion {
 			v.changed = true
 			continue
 		}
-		a.Recorders = append(a.Recorders, r.read.Object)
+		a.Managers = append(a.Managers, r.read.Object)
 	}
-	may := func(m resourceid.Ref) bool { return v.access.Read(m.GroupKind(), m.Namespace) == Allowed }
-	for _, m := range found.Elsewhere {
+	may := func(m resourceid.Ref) bool { return v.access.CanRead(m.GroupKind(), m.Namespace) == Allowed }
+	for _, m := range found.Remote {
 		if may(m) {
 			v.listRead(m, true)
 		}
@@ -691,12 +679,12 @@ func (v *View) Recorders(ref resourceid.Ref) RecordersAnswer {
 		}
 	}
 	for manager, inventory := range v.inventories {
-		if inventory.Manager.State == Present && !v.recordersAgree(search, ref, manager, inventory) {
+		if inventory.Manager.State == Present && !v.managersAgree(search, ref, manager, inventory) {
 			v.changed = true
 		}
 	}
-	v.recorderSearches[ref] = search
-	v.recorders[ref] = a
+	v.managerSearches[ref] = search
+	v.managerAnswers[ref] = a
 	return a
 }
 
@@ -711,23 +699,23 @@ func (v *View) listRead(manager resourceid.Ref, readable bool) {
 
 // searched reports whether found, a search for the managers recording an
 // object, read the member list of manager, a manager Radar holds.
-func searched(found RecorderRead, manager resourceid.Ref) bool {
-	return !found.Unnamed && !slices.ContainsFunc(found.Gaps, func(g Gap) bool { return covers(g, manager, true) })
+func searched(found RecordingManagersRead, manager resourceid.Ref) bool {
+	return !found.TargetUnresolvable && !slices.ContainsFunc(found.Gaps, func(g Gap) bool { return covers(g, manager, true) })
 }
 
-// recordersAgree reports whether search, for the managers recording ref,
+// managersAgree reports whether search, for the managers recording ref,
 // agrees with inventory, a read of manager's member list: the search finds the
-// manager as a recorder exactly when its list is readable, local and names
+// manager as listing it exactly when its list is readable, local and names
 // ref, and as unreadable exactly when its list can't be read. A search that
 // couldn't read the manager's list says nothing of it.
-func (v *View) recordersAgree(search recorderSearch, ref, manager resourceid.Ref, inventory InventoryRead) bool {
+func (v *View) managersAgree(search managerSearch, ref, manager resourceid.Ref, inventory MembersRead) bool {
 	if !searched(search.found, manager) {
 		return true
 	}
-	recorder, unreadable := search.recorders[manager], search.unreadable[manager]
+	listed, unreadable := search.managers[manager], search.unreadable[manager]
 	switch inventory.Membership {
 	case MembersUnreadable:
-		return unreadable && !recorder
+		return unreadable && !listed
 	case MembersRecorded:
 		members, built := v.memberSets[manager]
 		if !built {
@@ -737,8 +725,8 @@ func (v *View) recordersAgree(search recorderSearch, ref, manager resourceid.Ref
 			}
 			v.memberSets[manager] = members
 		}
-		return !unreadable && recorder == members[ref]
+		return !unreadable && listed == members[ref]
 	}
 	// A remote manager is found, if at all, as elsewhere.
-	return !unreadable && !recorder
+	return !unreadable && !listed
 }

@@ -25,24 +25,24 @@ type ServedResource struct {
 
 // Kind is what a catalog knows about one group and kind across the versions
 // serving it.
-type Kind struct {
+type CatalogKind struct {
 	resourceid.GroupKind
 	Resource   string
 	Namespaced bool
 	// Versions are every version serving the kind, sorted. They are the
 	// catalog's own and must not be modified.
 	Versions []string
-	// GarbageCollected: the kind is served with delete, list and watch, which
+	// HasGCVerbs: the kind is served with delete, list and watch, which
 	// Kubernetes' garbage collector needs to act on its objects. One such
 	// version is enough. The collector ignores Events whatever their verbs.
-	GarbageCollected bool
+	HasGCVerbs bool
 }
 
 // Catalog is the served API a session reads against. It is immutable.
 type Catalog struct {
-	kinds map[resourceid.GroupKind]Kind
+	kinds map[resourceid.GroupKind]CatalogKind
 	// dependents are DependentKinds, worked out once.
-	dependents []Kind
+	dependents []CatalogKind
 	// ambiguous are the kinds two resources of one group serve: a reference
 	// names a kind, not a resource, so it can't say which it means.
 	ambiguous []AmbiguousKind
@@ -83,7 +83,7 @@ func NewCatalog(resources []ServedResource, complete bool) *Catalog {
 		byKind[gk] = append(byKind[gk], r)
 		c.groupVersions[schema.GroupVersion{Group: r.Group, Version: r.Version}] = true
 	}
-	c.kinds = make(map[resourceid.GroupKind]Kind, len(byKind))
+	c.kinds = make(map[resourceid.GroupKind]CatalogKind, len(byKind))
 	for gk, served := range byKind {
 		resource := served[0].Resource
 		if slices.ContainsFunc(served, func(r ServedResource) bool { return r.Resource != resource }) {
@@ -97,11 +97,11 @@ func NewCatalog(resources []ServedResource, complete bool) *Catalog {
 			c.ambiguous = append(c.ambiguous, a)
 			continue
 		}
-		kind := Kind{GroupKind: gk, Resource: resource}
+		kind := CatalogKind{GroupKind: gk, Resource: resource}
 		for _, r := range served {
 			kind.Namespaced = r.Namespaced
 			kind.Versions = append(kind.Versions, r.Version)
-			kind.GarbageCollected = kind.GarbageCollected || hasVerbs(r.Verbs, "delete", "list", "watch")
+			kind.HasGCVerbs = kind.HasGCVerbs || hasVerbs(r.Verbs, "delete", "list", "watch")
 		}
 		slices.Sort(kind.Versions)
 		kind.Versions = slices.Compact(kind.Versions)
@@ -114,11 +114,11 @@ func NewCatalog(resources []ServedResource, complete bool) *Catalog {
 		}
 	}
 	for gk, k := range c.kinds {
-		if k.GarbageCollected && !IsEvent(gk) {
+		if k.HasGCVerbs && !IsEvent(gk) {
 			c.dependents = append(c.dependents, k)
 		}
 	}
-	slices.SortFunc(c.dependents, func(a, b Kind) int { return compareGroupKinds(a.GroupKind, b.GroupKind) })
+	slices.SortFunc(c.dependents, func(a, b CatalogKind) int { return compareGroupKinds(a.GroupKind, b.GroupKind) })
 	return c
 }
 
@@ -137,7 +137,7 @@ func hasVerbs(verbs []string, want ...string) bool {
 
 // Kind returns what the catalog knows about gk. An ambiguous kind is not
 // found.
-func (c *Catalog) Kind(gk resourceid.GroupKind) (Kind, bool) {
+func (c *Catalog) Kind(gk resourceid.GroupKind) (CatalogKind, bool) {
 	k, ok := c.kinds[gk]
 	return k, ok
 }
@@ -238,7 +238,7 @@ func (c *Catalog) Complete() bool {
 // Radar keeps none of their owner references, so an answer about an object's
 // dependents covers every kind but Events. The slice is the catalog's own and
 // must not be modified.
-func (c *Catalog) DependentKinds() []Kind {
+func (c *Catalog) DependentKinds() []CatalogKind {
 	return c.dependents
 }
 

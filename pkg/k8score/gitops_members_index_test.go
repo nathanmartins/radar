@@ -32,7 +32,7 @@ func argoApplication(name string, entries []any) *unstructured.Unstructured {
 }
 
 // An entry of a built-in kind is filed by the object it means; one of any
-// other kind under each reading its scope could call for; and a manager whose
+// other kind under each placement its scope could call for; and a manager whose
 // list can't be read, under UnreadableMembersKey alone.
 func TestMemberKeys(t *testing.T) {
 	keys := memberKeys(gitops.ArgoMembers)

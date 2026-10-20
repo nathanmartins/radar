@@ -25,7 +25,7 @@ import (
 	"github.com/skyhook-io/radar/pkg/topology"
 )
 
-// scriptedSource opens sessions over the ownership fixture whose Validate
+// scriptedSource opens sessions over the ownership fixture whose ValidateStores
 // returns the next scripted error.
 type scriptedSource struct {
 	t        *testing.T
@@ -36,17 +36,17 @@ type scriptedSource struct {
 }
 
 type scriptedSession struct {
-	ownership.Session
+	ownership.ReadSession
 	validate error
 	calls    *[]string
 }
 
-func (s scriptedSession) Validate() error {
+func (s scriptedSession) ValidateStores() error {
 	*s.calls = append(*s.calls, "validate")
 	return s.validate
 }
 
-func (s *scriptedSource) Begin() (ownership.Session, error) {
+func (s *scriptedSource) Begin() (ownership.ReadSession, error) {
 	if s.begin != nil {
 		return nil, s.begin
 	}
@@ -59,7 +59,7 @@ func (s *scriptedSource) Begin() (ownership.Session, error) {
 		v = s.validate[s.begun]
 	}
 	s.begun++
-	return scriptedSession{Session: inner, validate: v, calls: &s.calls}, nil
+	return scriptedSession{ReadSession: inner, validate: v, calls: &s.calls}, nil
 }
 
 func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing.T) {
@@ -89,7 +89,7 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 		t.Run(tc.name, func(t *testing.T) {
 			tc.source.t = t
 			rel := &topology.Relationships{}
-			present := func(rel *topology.Relationships, _ *ownership.View, _ ownership.Session) {
+			present := func(rel *topology.Relationships, _ *ownership.View, _ ownership.ReadSession) {
 				tc.source.calls = append(tc.source.calls, "present")
 				rel.InactiveChildren = append(rel.InactiveChildren, topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "alpha", Name: "old"})
 			}
@@ -194,7 +194,7 @@ func TestSplitHistoryCostsNothingForAnOwnerWithoutHistory(t *testing.T) {
 	subject := resourceid.Ref{Group: "apps", Kind: "ReplicaSet", Namespace: "shop", Name: "web-big"}
 	fetched := ownership.Observe(subject, "apps/v1", rs)
 	unrestricted := func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() }
-	bytes := func(present func(*topology.Relationships, *ownership.View, ownership.Session)) uint64 {
+	bytes := func(present func(*topology.Relationships, *ownership.View, ownership.ReadSession)) uint64 {
 		const answers = 5
 		var before, after goruntime.MemStats
 		goruntime.ReadMemStats(&before)

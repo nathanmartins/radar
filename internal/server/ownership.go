@@ -50,7 +50,7 @@ func (s *Server) ownershipAccess(r *http.Request, catalog *ownership.Catalog) ow
 	return &requestAccess{s: s, r: r, catalog: catalog, namespaces: namespaces, failed: failed, clusterNamespaces: allNamespaceNames, decided: map[accessKey]ownership.Decision{}}
 }
 
-func (a *requestAccess) Read(kind resourceid.GroupKind, namespace string) ownership.Decision {
+func (a *requestAccess) CanRead(kind resourceid.GroupKind, namespace string) ownership.Decision {
 	key := accessKey{kind: kind, namespace: namespace}
 	if d, ok := a.decided[key]; ok {
 		return d
@@ -156,13 +156,13 @@ func (a *requestAccess) Namespaces() ([]string, bool) {
 
 // AllKindsIn holds when the user may read namespace and every kind there
 // that is checked per namespace.
-func (a *requestAccess) AllKindsIn(namespace string) bool {
-	if a.Read(resourceid.GroupKind{Kind: "Secret"}, namespace) != ownership.Allowed ||
-		a.Read(resourceid.GroupKind{Kind: "LimitRange"}, namespace) != ownership.Allowed {
+func (a *requestAccess) CanReadAllKindsIn(namespace string) bool {
+	if a.CanRead(resourceid.GroupKind{Kind: "Secret"}, namespace) != ownership.Allowed ||
+		a.CanRead(resourceid.GroupKind{Kind: "LimitRange"}, namespace) != ownership.Allowed {
 		return false
 	}
 	for _, k := range a.catalog.DependentKinds() {
-		if k.Namespaced && checkedInNamespace(k.GroupKind) && a.Read(k.GroupKind, namespace) != ownership.Allowed {
+		if k.Namespaced && checkedInNamespace(k.GroupKind) && a.CanRead(k.GroupKind, namespace) != ownership.Allowed {
 			return false
 		}
 	}
@@ -171,7 +171,7 @@ func (a *requestAccess) AllKindsIn(namespace string) bool {
 
 // Everything holds for a user with every namespace and a wildcard read
 // grant, as cluster-admin has.
-func (a *requestAccess) Everything() bool {
+func (a *requestAccess) CanReadEverything() bool {
 	if a.everything == nil {
 		all := !a.failed && a.namespaces == nil && a.check("*", "*", "") == ownership.Allowed
 		a.everything = &all

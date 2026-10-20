@@ -70,8 +70,8 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 	// itself. The graph draws a HelmRelease's edges from its members' labels,
 	// and an Application's or Kustomization's from the same status list, for
 	// the workload and network kinds it draws.
-	recorders := v.Recorders(subject)
-	for _, m := range recorders.Recorders {
+	recorders := v.RecordingManagers(subject)
+	for _, m := range recorders.Managers {
 		rel.Managers = appendResourceRef(rel.Managers, refOf(m.Ref))
 	}
 	labelled := func(r resourceid.Ref) bool {
@@ -81,15 +81,15 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 	// Any other manages edge is management only with evidence that it isn't
 	// ownership or a shortcut past the hops of a controller chain, such as a
 	// CronJob's edge to its Job's Pod: the chain is known to its end.
-	root := v.ControllerRoot(subject)
+	chain := v.ControllerChain(subject)
 	for _, s := range sources {
 		r := refIdentity(s)
 		switch {
-		case named[r] || slices.Contains(root.Chain, r):
+		case named[r] || slices.Contains(chain.Chain, r):
 		case !present(v, r):
 			// The caller may not read the manager, or it is gone since the
 			// graph drew its edge.
-		case ownership.IsRecordingManager(r.GroupKind()) && labelled(r), !ownership.IsRecordingManager(r.GroupKind()) && settled(root):
+		case ownership.IsRecordingManager(r.GroupKind()) && labelled(r), !ownership.IsRecordingManager(r.GroupKind()) && settled(chain):
 			rel.Managers = appendResourceRef(rel.Managers, s)
 		}
 	}
@@ -130,7 +130,7 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		if !target.Present() || namedOwners(target.Read.Object)[subject] {
 			continue
 		}
-		if tr := v.ControllerRoot(r); slices.Contains(tr.Chain, subject) || !gitops && !settled(tr) {
+		if tr := v.ControllerChain(r); slices.Contains(tr.Chain, subject) || !gitops && !settled(tr) {
 			continue
 		}
 		// A GitOps manager's coverage can say its list was cut short.
@@ -182,15 +182,15 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 	switch {
 	case owner.Several:
 		cov.OwnerState = "several"
-	case owner.Index >= 0 && owner.Resolution.State == ownership.OwnerFound:
+	case owner.Reference != nil && owner.Resolution.State == ownership.OwnerFound:
 		ref := refOf(owner.Resolution.Ref)
 		rel.Owner = &ref
-	case owner.Index >= 0:
+	case owner.Reference != nil:
 		cov.OwnerState = owner.Resolution.State.String()
 		switch owner.Resolution.State {
 		case ownership.OwnerGone, ownership.OwnerReplaced, ownership.OwnerUnknown:
 			// The object's own reference names it; the user can read that.
-			cov.OwnerRef = namedOwner(owner.Subject.Read.Object, owner)
+			cov.OwnerRef = namedOwner(owner)
 		}
 		if owner.Resolution.State == ownership.OwnerUnknown {
 			cov.OwnerReason = string(owner.Resolution.Gap.Reason)
@@ -253,18 +253,18 @@ func present(v *ownership.View, ref resourceid.Ref) bool {
 // a reference it couldn't follow, looped or gave up may continue past where
 // it stopped, as the graph's edges may: one drawn through an owner that has
 // since gone, or that no longer resolves, is still a shortcut.
-func settled(root ownership.RootAnswer) bool {
-	return root.Subject.Present() && root.Stop == nil && !root.Cycle && !root.Truncated
+func settled(chain ownership.ControllerChainAnswer) bool {
+	return chain.Subject.Present() && chain.UnfollowedReference == nil && !chain.Cycle && !chain.Truncated
 }
 
 // namedOwner is the owner o's reference names, as the reference names it:
 // with its namespace only when its kind's scope is known.
-func namedOwner(o ownership.Observation, owner ownership.OwnerAnswer) *ResourceRef {
+func namedOwner(owner ownership.OwnerAnswer) *ResourceRef {
 	if owner.Resolution.Ref.Kind != "" {
 		ref := refOf(owner.Resolution.Ref)
 		return &ref
 	}
-	r := o.OwnerReferences[owner.Index]
+	r := owner.Reference
 	gv, err := schema.ParseGroupVersion(r.APIVersion)
 	if err != nil || r.Kind == "" || r.Name == "" {
 		return nil
@@ -293,7 +293,7 @@ func deploymentOf(v *ownership.View, subject resourceid.Ref) *ResourceRef {
 	if subject.GroupKind() != (resourceid.GroupKind{Kind: "Pod"}) {
 		return nil
 	}
-	chain := v.ControllerRoot(subject).Chain
+	chain := v.ControllerChain(subject).Chain
 	if len(chain) < 3 || chain[1].GroupKind() != (resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"}) ||
 		chain[2].GroupKind() != (resourceid.GroupKind{Group: "apps", Kind: "Deployment"}) {
 		return nil

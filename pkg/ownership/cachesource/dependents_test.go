@@ -29,7 +29,7 @@ import (
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
-func candidateRefs(r ownership.CandidateRead) []resourceid.Ref {
+func candidateRefs(r ownership.DependentCandidatesRead) []resourceid.Ref {
 	var out []resourceid.Ref
 	for _, c := range r.Candidates {
 		out = append(out, c.Ref)
@@ -37,11 +37,11 @@ func candidateRefs(r ownership.CandidateRead) []resourceid.Ref {
 	return out
 }
 
-func hasGap(r ownership.CandidateRead, want ownership.Gap) bool {
+func hasGap(r ownership.DependentCandidatesRead, want ownership.Gap) bool {
 	return slices.Contains(r.Gaps, want)
 }
 
-func TestOwnerCandidatesNeedEveryWatchedVersionToAgree(t *testing.T) {
+func TestDependentCandidatesNeedEveryWatchedVersionToAgree(t *testing.T) {
 	w1 := ref("example.io", "Widget", "alpha", "w1")
 	for _, tc := range []struct {
 		name        string
@@ -56,8 +56,8 @@ func TestOwnerCandidatesNeedEveryWatchedVersionToAgree(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := versionsFixture(t, tc.v1, tc.v1beta1, nil)
 			s := begin(t, f.source())
-			for _, domain := range []ownership.Domain{ownership.InNamespace("alpha"), ownership.Everywhere()} {
-				got := s.OwnerCandidates("uid-deploy", domain, 0)
+			for _, domain := range []ownership.SearchScope{ownership.InNamespace("alpha"), ownership.Everywhere()} {
+				got := s.DependentCandidates("uid-deploy", domain, 0)
 				namespace := "alpha"
 				if domain.AllNamespaces {
 					namespace = ""
@@ -108,7 +108,7 @@ func scopedVersionsFixture(t *testing.T, v1, v1beta1 []runtime.Object, v1Scope, 
 // A search of every namespace compares a version watched cluster-wide with
 // one watched only in some namespaces, there; and with no cluster-wide watch
 // it reads every version's namespaces.
-func TestOwnerCandidatesCompareVersionsWatchedInDifferentScopes(t *testing.T) {
+func TestDependentCandidatesCompareVersionsWatchedInDifferentScopes(t *testing.T) {
 	w1, w9 := ref("example.io", "Widget", "alpha", "w1"), ref("example.io", "Widget", "beta", "w9")
 	for _, tc := range []struct {
 		name               string
@@ -132,7 +132,7 @@ func TestOwnerCandidatesCompareVersionsWatchedInDifferentScopes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := scopedVersionsFixture(t, tc.v1, tc.v1beta1, tc.v1Scope, tc.betaScope)
 			s := begin(t, f.source())
-			got := s.OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+			got := s.DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 			var widgetGaps []ownership.Gap
 			for _, g := range got.Gaps {
 				if g.Kind == widgetKind {
@@ -148,14 +148,14 @@ func TestOwnerCandidatesCompareVersionsWatchedInDifferentScopes(t *testing.T) {
 			if !slices.Equal(found, tc.wantFound) || !slices.Equal(widgetGaps, tc.wantGaps) {
 				t.Fatalf("Widgets %v, gaps %+v; want %v, %+v", found, widgetGaps, tc.wantFound, tc.wantGaps)
 			}
-			if err := s.Validate(); err != nil {
+			if err := s.ValidateStores(); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 }
 
-func TestOwnerCandidatesReportAnAmbiguousKind(t *testing.T) {
+func TestDependentCandidatesReportAnAmbiguousKind(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 		fd := f.typed.Discovery().(*fakediscovery.FakeDiscovery)
 		fd.Resources = append(fd.Resources, &metav1.APIResourceList{GroupVersion: "example.io/v1", APIResources: []metav1.APIResource{
@@ -164,24 +164,24 @@ func TestOwnerCandidatesReportAnAmbiguousKind(t *testing.T) {
 	})
 	f.watch(t, widgets)
 	s := begin(t, f.source())
-	got := s.OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	got := s.DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 	if !hasGap(got, ownership.Gap{Kind: widgetKind, Reason: readreason.ReadError}) || got.Complete() {
 		t.Fatalf("dependents with Widget served by two resources = %+v; want a Widget read_error gap", got)
 	}
 	if slices.Contains(candidateRefs(got), ref("example.io", "Widget", "alpha", "w1")) {
 		t.Fatal("an ambiguous kind's objects can't be named as one resource's")
 	}
-	if none := s.OwnerCandidates("uid-deploy", ownership.Domain{}, 0); len(none.Gaps) != 0 {
+	if none := s.DependentCandidates("uid-deploy", ownership.SearchScope{}, 0); len(none.Gaps) != 0 {
 		t.Fatalf("a search of nothing reports gaps: %+v", none.Gaps)
 	}
-	if clusterOnly := s.OwnerCandidates("uid-deploy", ownership.Domain{ClusterScoped: true}, 0); hasGap(clusterOnly, ownership.Gap{Kind: widgetKind, Reason: readreason.ReadError}) {
+	if clusterOnly := s.DependentCandidates("uid-deploy", ownership.SearchScope{IncludeClusterScoped: true}, 0); hasGap(clusterOnly, ownership.Gap{Kind: widgetKind, Reason: readreason.ReadError}) {
 		t.Fatalf("a cluster-scoped search reports the namespaced Widget: %+v", clusterOnly.Gaps)
 	}
 }
 
 // Kueue's visibility API serves PendingWorkloadsSummary through two query
 // resources nothing can list or watch; it holds no dependents to miss.
-func TestOwnerCandidatesIgnoreAnAmbiguousKindNothingCollects(t *testing.T) {
+func TestDependentCandidatesIgnoreAnAmbiguousKindNothingCollects(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 		fd := f.typed.Discovery().(*fakediscovery.FakeDiscovery)
 		fd.Resources = append(fd.Resources, &metav1.APIResourceList{GroupVersion: "visibility.kueue.x-k8s.io/v1beta2", APIResources: []metav1.APIResource{
@@ -195,8 +195,8 @@ func TestOwnerCandidatesIgnoreAnAmbiguousKindNothingCollects(t *testing.T) {
 	if !s.Catalog().Ambiguous(summary) {
 		t.Fatal("scenario: PendingWorkloadsSummary must be ambiguous")
 	}
-	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha"), {ClusterScoped: true}} {
-		got := s.OwnerCandidates("uid-deploy", domain, 0)
+	for _, domain := range []ownership.SearchScope{ownership.Everywhere(), ownership.InNamespace("alpha"), {IncludeClusterScoped: true}} {
+		got := s.DependentCandidates("uid-deploy", domain, 0)
 		for _, g := range got.Gaps {
 			if g.Kind == summary {
 				t.Fatalf("search of %+v reports %+v; nothing can collect a summary", domain, g)
@@ -207,21 +207,21 @@ func TestOwnerCandidatesIgnoreAnAmbiguousKindNothingCollects(t *testing.T) {
 
 // A search while a cluster-wide watch takes over from namespace ones must
 // not answer from the unloaded replacement, and a session that read the old
-// store must fail Validate.
-func TestOwnerCandidatesThroughAPromotion(t *testing.T) {
+// store must fail ValidateStores.
+func TestDependentCandidatesThroughAPromotion(t *testing.T) {
 	f, p := newPromotionFixture(t)
 	source := f.source()
 	before := begin(t, source)
-	if got := before.OwnerCandidates("uid-deploy", ownership.InNamespace("alpha"), 0); !slices.Contains(candidateRefs(got), ref("example.io", "Widget", "alpha", "w1")) {
+	if got := before.DependentCandidates("uid-deploy", ownership.InNamespace("alpha"), 0); !slices.Contains(candidateRefs(got), ref("example.io", "Widget", "alpha", "w1")) {
 		t.Fatalf("from alpha's watch = %+v", got)
 	}
 	p.run(t, f, true)
-	if err := before.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate after the replacement = %v, want ErrStoreReplaced", err)
+	if err := before.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores after the replacement = %v, want ErrStoreReplaced", err)
 	}
 	during := begin(t, source)
-	for _, domain := range []ownership.Domain{ownership.InNamespace("alpha"), ownership.Everywhere()} {
-		got := during.OwnerCandidates("uid-deploy", domain, 0)
+	for _, domain := range []ownership.SearchScope{ownership.InNamespace("alpha"), ownership.Everywhere()} {
+		got := during.DependentCandidates("uid-deploy", domain, 0)
 		if slices.ContainsFunc(got.Candidates, func(c ownership.Observation) bool { return c.Ref.GroupKind() == widgetKind }) ||
 			!slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widgetKind && g.Reason == readreason.KindSyncPending }) {
 			t.Fatalf("%+v from the unloaded replacement = %+v; want a Widget kind_sync_pending gap and no Widgets", domain, got)
@@ -232,7 +232,7 @@ func TestOwnerCandidatesThroughAPromotion(t *testing.T) {
 		t.Fatal("the replacement did not sync")
 	}
 	after := begin(t, source)
-	got := after.OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	got := after.DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 	if !slices.Contains(candidateRefs(got), ref("example.io", "Widget", "alpha", "w1")) ||
 		slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widgetKind }) {
 		t.Fatalf("from the loaded replacement = %+v", got)
@@ -241,7 +241,7 @@ func TestOwnerCandidatesThroughAPromotion(t *testing.T) {
 
 // A namespace watch started mid-session must not widen one answer of the
 // session and not another.
-func TestOwnerCandidatesKeepTheSessionsNamespaceWatches(t *testing.T) {
+func TestDependentCandidatesKeepTheSessionsNamespaceWatches(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 		if err := f.dynamic.Tracker().Add(widget("beta", "wb", "uid-wb")); err != nil {
 			t.Fatal(err)
@@ -258,36 +258,36 @@ func TestOwnerCandidatesKeepTheSessionsNamespaceWatches(t *testing.T) {
 	}
 	waitUntil(t, "alpha's watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(widgets, "alpha") })
 	s := begin(t, f.source())
-	first := s.OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	first := s.DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 	if _, err := f.caches.Dynamic.List(widgets, "beta"); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, "beta's watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(widgets, "beta") })
-	second := s.OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	second := s.DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 	if !slices.Equal(candidateRefs(first), candidateRefs(second)) || !slices.Equal(first.Gaps, second.Gaps) {
 		t.Fatalf("a watch started mid-session changed the session's answer:\n first  %v %+v\n second %v %+v", candidateRefs(first), first.Gaps, candidateRefs(second), second.Gaps)
 	}
 	if !hasGap(first, ownership.Gap{Kind: widgetKind, Reason: readreason.RadarNamespaceNotCollected}) {
 		t.Fatalf("watched namespace by namespace, the rest must be a gap: %+v", first)
 	}
-	if fresh := begin(t, f.source()).OwnerCandidates("uid-deploy", ownership.Everywhere(), 0); slices.Equal(candidateRefs(fresh), candidateRefs(first)) {
+	if fresh := begin(t, f.source()).DependentCandidates("uid-deploy", ownership.Everywhere(), 0); slices.Equal(candidateRefs(fresh), candidateRefs(first)) {
 		t.Fatalf("a new session must see the new watch: %v", candidateRefs(fresh))
 	}
 }
 
-func TestOwnerCandidatesDoNoIO(t *testing.T) {
+func TestDependentCandidatesDoNoIO(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, nil)
 	f.watch(t, widgets)
 	waitForWatches(t, &f.typed.Fake, "pods", "replicasets", "deployments", "nodes", "events")
 	waitForWatches(t, &f.dynamic.Fake, "widgets")
 	before := len(f.typed.Actions()) + len(f.dynamic.Actions())
 	s := begin(t, f.source())
-	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha"), {Namespaces: []string{"alpha", "gamma"}, ClusterScoped: true}} {
+	for _, domain := range []ownership.SearchScope{ownership.Everywhere(), ownership.InNamespace("alpha"), {Namespaces: []string{"alpha", "gamma"}, IncludeClusterScoped: true}} {
 		for _, uid := range []types.UID{"uid-deploy", "uid-rs", "uid-node", "uid-none"} {
-			s.OwnerCandidates(uid, domain, 0)
+			s.DependentCandidates(uid, domain, 0)
 		}
 	}
-	if err := s.Validate(); err != nil {
+	if err := s.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 	if after := len(f.typed.Actions()) + len(f.dynamic.Actions()); after != before {
@@ -302,7 +302,7 @@ func TestOwnerCandidatesDoNoIO(t *testing.T) {
 // objects that name other owners. Counting allocations can't tell, since
 // listing the whole kind is one allocation however many it holds; the bytes
 // grow with them.
-func TestOwnerCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
+func TestDependentCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
 	bytesPerSearch := func(unrelated int) uint64 {
 		objs := []runtime.Object{
 			&appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "rs", UID: "uid-rs"}},
@@ -327,14 +327,14 @@ func TestOwnerCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := s.OwnerCandidates("uid-rs", ownership.InNamespace("alpha"), 0); len(got.Candidates) != 1 {
+		if got := s.DependentCandidates("uid-rs", ownership.InNamespace("alpha"), 0); len(got.Candidates) != 1 {
 			t.Fatalf("with %d unrelated Pods: %+v", unrelated, got)
 		}
 		const searches = 20
 		var before, after goruntime.MemStats
 		goruntime.ReadMemStats(&before)
 		for range searches {
-			s.OwnerCandidates("uid-rs", ownership.InNamespace("alpha"), 0)
+			s.DependentCandidates("uid-rs", ownership.InNamespace("alpha"), 0)
 		}
 		goruntime.ReadMemStats(&after)
 		return (after.TotalAlloc - before.TotalAlloc) / searches
@@ -346,25 +346,25 @@ func TestOwnerCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
 }
 
 // An empty answer depends on the stores that gave it as much as a full one.
-func TestOwnerCandidatesNegativeFailsValidateOnceItsStoreIsReplaced(t *testing.T) {
+func TestDependentCandidatesNegativeFailsValidateOnceItsStoreIsReplaced(t *testing.T) {
 	f, p := newPromotionFixture(t)
 	s := begin(t, f.source())
-	got := s.OwnerCandidates("uid-nothing-names", ownership.InNamespace("alpha"), 0)
+	got := s.DependentCandidates("uid-nothing-names", ownership.InNamespace("alpha"), 0)
 	if slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widgetKind }) || len(got.Candidates) != 0 {
 		t.Fatalf("a search alpha's loaded watch answers = %+v", got)
 	}
 	p.run(t, f, true)
-	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate after the store behind an empty answer was replaced = %v, want ErrStoreReplaced", err)
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores after the store behind an empty answer was replaced = %v, want ErrStoreReplaced", err)
 	}
 }
 
 // Paged informers are indexed like any other.
-func TestOwnerCandidatesFromPagedInformers(t *testing.T) {
+func TestDependentCandidatesFromPagedInformers(t *testing.T) {
 	clientfeaturestesting.SetFeatureDuringTest(t, clientfeatures.WatchListClient, false)
 	f := newFixture(t, k8score.CacheConfig{ListPageSize: 2}, nil)
 	s := begin(t, f.source())
-	got := s.OwnerCandidates("uid-deploy", ownership.InNamespace("alpha"), 0)
+	got := s.DependentCandidates("uid-deploy", ownership.InNamespace("alpha"), 0)
 	if !slices.Contains(candidateRefs(got), ref("apps", "ReplicaSet", "alpha", "web-1")) ||
 		slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == resourceid.GroupKind{Group: "apps", Kind: "ReplicaSet"} }) {
 		t.Fatalf("dependents through a paged ReplicaSet informer = %+v", got)
@@ -373,7 +373,7 @@ func TestOwnerCandidatesFromPagedInformers(t *testing.T) {
 
 // A typed kind whose load missed its deadline may still finish: a search says
 // its load is overdue, not that it is still loading.
-func TestOwnerCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
+func TestDependentCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{
 		ResourceTypes:       map[string]bool{k8score.Pods: true, k8score.Secrets: true},
 		DeferredTypes:       map[string]bool{k8score.Secrets: true},
@@ -389,8 +389,8 @@ func TestOwnerCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
 	secret := resourceid.GroupKind{Kind: "Secret"}
 	// One informer serves every namespace, so its state is one gap whatever
 	// the search names.
-	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha"), {Namespaces: []string{"alpha", "beta"}}} {
-		got := begin(t, f.source()).OwnerCandidates("uid-deploy", domain, 0)
+	for _, domain := range []ownership.SearchScope{ownership.Everywhere(), ownership.InNamespace("alpha"), {Namespaces: []string{"alpha", "beta"}}} {
+		got := begin(t, f.source()).DependentCandidates("uid-deploy", domain, 0)
 		if want := (ownership.Gap{Kind: secret, Reason: readreason.KindSyncTimedOut}); !slices.Contains(got.Gaps, want) {
 			t.Errorf("%+v: gaps %+v; want %+v", domain, got.Gaps, want)
 		}
@@ -401,15 +401,15 @@ func TestOwnerCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
 // one reason, so the search says so once: a caller who may read a hundred
 // namespaces asking about a cluster-scoped owner gets the gaps a caller who
 // may read one gets, not a hundred times as many.
-func TestOwnerCandidatesReportAWholeKindsStateOnce(t *testing.T) {
+func TestDependentCandidatesReportAWholeKindsStateOnce(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, nil)
 	s := begin(t, f.source())
-	search := func(n int) ownership.CandidateRead {
+	search := func(n int) ownership.DependentCandidatesRead {
 		var namespaces []string
 		for i := range n {
 			namespaces = append(namespaces, fmt.Sprintf("ns-%03d", i))
 		}
-		return s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: namespaces, ClusterScoped: true}, 0)
+		return s.DependentCandidates("uid-node", ownership.SearchScope{Namespaces: namespaces, IncludeClusterScoped: true}, 0)
 	}
 	one, hundred := search(1), search(100)
 	gadget := resourceid.GroupKind{Group: "example.io", Kind: "Gadget"}
@@ -420,7 +420,7 @@ func TestOwnerCandidatesReportAWholeKindsStateOnce(t *testing.T) {
 	if !slices.Equal(hundred.Gaps, one.Gaps) {
 		t.Fatalf("a search of 100 namespaces has %d gaps, one of a single namespace %d: %+v", len(hundred.Gaps), len(one.Gaps), hundred.Gaps)
 	}
-	if got := s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: []string{""}}, 0); slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == gadget }) {
+	if got := s.DependentCandidates("uid-node", ownership.SearchScope{Namespaces: []string{""}}, 0); slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == gadget }) {
 		t.Fatalf("a domain naming no namespace has gaps %+v; it looked nowhere", got.Gaps)
 	}
 }
@@ -428,7 +428,7 @@ func TestOwnerCandidatesReportAWholeKindsStateOnce(t *testing.T) {
 // A kind whose one cluster-wide informer hasn't loaded, typed or dynamic, is
 // in the same state in every namespace a search names: one gap, whether the
 // search names one namespace or a hundred.
-func TestOwnerCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
+func TestDependentCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{
 		ResourceTypes: map[string]bool{k8score.Pods: true, k8score.Secrets: true},
 		DeferredTypes: map[string]bool{k8score.Secrets: true},
@@ -449,12 +449,12 @@ func TestOwnerCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := begin(t, f.source())
-	search := func(n int) ownership.CandidateRead {
+	search := func(n int) ownership.DependentCandidatesRead {
 		var namespaces []string
 		for i := range n {
 			namespaces = append(namespaces, fmt.Sprintf("ns-%03d", i))
 		}
-		return s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: namespaces, ClusterScoped: true}, 0)
+		return s.DependentCandidates("uid-node", ownership.SearchScope{Namespaces: namespaces, IncludeClusterScoped: true}, 0)
 	}
 	one, hundred := search(1), search(100)
 	for _, want := range []ownership.Gap{
@@ -473,7 +473,7 @@ func TestOwnerCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
 // A cluster-wide store serves every namespace, so a search of many namespaces
 // reads it once: the work follows the owner's dependents plus the namespaces
 // asked about, not their product, and the session records the one store.
-func TestOwnerCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
+func TestDependentCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
 	search := func(n int) (stores int, bytes uint64) {
 		var namespaces []string
 		f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
@@ -489,14 +489,14 @@ func TestOwnerCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
 		})
 		f.watch(t, widgets)
 		s := begin(t, f.source())
-		domain := ownership.Domain{Namespaces: namespaces}
-		if got := s.OwnerCandidates("uid-node", domain, 0); len(got.Candidates) != n {
+		domain := ownership.SearchScope{Namespaces: namespaces}
+		if got := s.DependentCandidates("uid-node", domain, 0); len(got.Candidates) != n {
 			t.Fatalf("%d namespaces: %d candidates, want one Widget in each", n, len(got.Candidates))
 		}
 		var before, after goruntime.MemStats
 		goruntime.ReadMemStats(&before)
 		for range 3 {
-			s.OwnerCandidates("uid-node", domain, 0)
+			s.DependentCandidates("uid-node", domain, 0)
 		}
 		goruntime.ReadMemStats(&after)
 		return len(s.(*session).served), (after.TotalAlloc - before.TotalAlloc) / 3
@@ -517,7 +517,7 @@ func TestOwnerCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
 // With one version watched only in alpha and another watched cluster-wide but
 // still loading, alpha is read through the first, and the rest of the
 // namespaces are loading, not outside what Radar collects.
-func TestOwnerCandidatesSayTheRestLoadsWhileAClusterWideVersionLoads(t *testing.T) {
+func TestDependentCandidatesSayTheRestLoadsWhileAClusterWideVersionLoads(t *testing.T) {
 	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
 	var held atomic.Int32
 	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
@@ -543,7 +543,7 @@ func TestOwnerCandidatesSayTheRestLoadsWhileAClusterWideVersionLoads(t *testing.
 		t.Fatal(err)
 	}
 	waitUntil(t, "v1's held list", func() bool { return held.Load() > 1 })
-	got := begin(t, f.source()).OwnerCandidates("uid-deploy", ownership.Everywhere(), 0)
+	got := begin(t, f.source()).DependentCandidates("uid-deploy", ownership.Everywhere(), 0)
 	var widgetGaps []ownership.Gap
 	for _, g := range got.Gaps {
 		if g.Kind == widgetKind {

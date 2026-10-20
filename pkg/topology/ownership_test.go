@@ -339,15 +339,15 @@ func TestApplyOwnershipForAKindRadarDoesNotCollect(t *testing.T) {
 
 type denyPods struct{}
 
-func (denyPods) Read(gk resourceid.GroupKind, _ string) ownership.Decision {
+func (denyPods) CanRead(gk resourceid.GroupKind, _ string) ownership.Decision {
 	if gk.Kind == "Pod" && gk.Group == "" {
 		return ownership.Denied
 	}
 	return ownership.Allowed
 }
-func (denyPods) Namespaces() ([]string, bool) { return nil, true }
-func (denyPods) Everything() bool             { return false }
-func (denyPods) AllKindsIn(string) bool       { return false }
+func (denyPods) Namespaces() ([]string, bool)  { return nil, true }
+func (denyPods) CanReadEverything() bool       { return false }
+func (denyPods) CanReadAllKindsIn(string) bool { return false }
 
 func TestApplyOwnershipCapsChildren(t *testing.T) {
 	b := ownershiptest.NewBuilder()
@@ -365,23 +365,23 @@ func TestApplyOwnershipCapsChildren(t *testing.T) {
 // searchCounter is a session that counts the reads that grow with what an
 // object owns or manages: searches for dependents and member lists.
 type searchCounter struct {
-	ownership.Session
+	ownership.ReadSession
 	searches int
 }
 
-func (s *searchCounter) OwnerCandidates(uid types.UID, domain ownership.Domain, limit int) ownership.CandidateRead {
+func (s *searchCounter) DependentCandidates(uid types.UID, domain ownership.SearchScope, limit int) ownership.DependentCandidatesRead {
 	s.searches++
-	return s.Session.OwnerCandidates(uid, domain, limit)
+	return s.ReadSession.DependentCandidates(uid, domain, limit)
 }
 
-func (s *searchCounter) Inventory(manager resourceid.Ref) ownership.InventoryRead {
+func (s *searchCounter) Members(manager resourceid.Ref) ownership.MembersRead {
 	s.searches++
-	return s.Session.Inventory(manager)
+	return s.ReadSession.Members(manager)
 }
 
-func (s *searchCounter) Recorders(ref resourceid.Ref) ownership.RecorderRead {
+func (s *searchCounter) RecordingManagers(ref resourceid.Ref) ownership.RecordingManagersRead {
 	s.searches++
-	return s.Session.Recorders(ref)
+	return s.ReadSession.RecordingManagers(ref)
 }
 
 // Ownership doesn't read Events, so an Event's Related Resources carry no
@@ -407,7 +407,7 @@ func TestApplyOwnerAnswersTheOwnerWithoutSearching(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		counted := &searchCounter{Session: s}
+		counted := &searchCounter{ReadSession: s}
 		owner := &Relationships{}
 		ApplyOwner(owner, ownership.NewView(counted, ownership.Unrestricted()), fetched(t, w, o.Ref))
 		if counted.searches != 0 {
@@ -448,7 +448,7 @@ func TestApplyOwnershipNamesOnlyManagersTheCallerReads(t *testing.T) {
 		rel := &Relationships{manageSources: []ResourceRef{refOf(app.Ref)}}
 		v := ownershipView(t, tc.w, tc.access)
 		ApplyOwnership(rel, v, fetched(t, tc.w, cm.Ref))
-		if err := v.Validate(); err != nil {
+		if err := v.ValidateAnswers(); err != nil {
 			t.Fatal(err)
 		}
 		if len(rel.Managers) != tc.want {
@@ -459,15 +459,15 @@ func TestApplyOwnershipNamesOnlyManagersTheCallerReads(t *testing.T) {
 
 type denyKind struct{ kind resourceid.GroupKind }
 
-func (d denyKind) Read(gk resourceid.GroupKind, _ string) ownership.Decision {
+func (d denyKind) CanRead(gk resourceid.GroupKind, _ string) ownership.Decision {
 	if gk == d.kind {
 		return ownership.Denied
 	}
 	return ownership.Allowed
 }
-func (denyKind) Namespaces() ([]string, bool) { return nil, true }
-func (denyKind) Everything() bool             { return false }
-func (denyKind) AllKindsIn(string) bool       { return false }
+func (denyKind) Namespaces() ([]string, bool)  { return nil, true }
+func (denyKind) CanReadEverything() bool       { return false }
+func (denyKind) CanReadAllKindsIn(string) bool { return false }
 
 // A Pod's Deployment is the one its ReplicaSet's controller reference names,
 // reached through the Pod's own controller reference.
@@ -536,15 +536,15 @@ func TestApplyOwnershipCapsLabelMembers(t *testing.T) {
 // namespacesOnly may read the listed namespaces and every cluster-scoped kind.
 type namespacesOnly []string
 
-func (n namespacesOnly) Read(_ resourceid.GroupKind, namespace string) ownership.Decision {
+func (n namespacesOnly) CanRead(_ resourceid.GroupKind, namespace string) ownership.Decision {
 	if namespace == "" || slices.Contains(n, namespace) {
 		return ownership.Allowed
 	}
 	return ownership.Denied
 }
 func (n namespacesOnly) Namespaces() ([]string, bool) { return n, false }
-func (namespacesOnly) Everything() bool               { return false }
-func (namespacesOnly) AllKindsIn(string) bool         { return false }
+func (namespacesOnly) CanReadEverything() bool        { return false }
+func (namespacesOnly) CanReadAllKindsIn(string) bool  { return false }
 
 // A cluster-scoped owner's children are searched in each of the caller's
 // namespaces; a kind Radar doesn't collect is listed once, not once per
@@ -625,7 +625,7 @@ func TestApplyOwnershipTakesGitOpsManagersFromTheirLists(t *testing.T) {
 		}
 		v := ownershipView(t, w, tc.access)
 		ApplyOwnership(rel, v, fetched(t, w, tc.subject.Ref))
-		if err := v.Validate(); err != nil {
+		if err := v.ValidateAnswers(); err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 		if got := refsText(rel.Managers); !slices.Equal(got, tc.want) {
@@ -647,11 +647,11 @@ func TestApplyOwnershipKeepsAReadListOverAGapElsewhere(t *testing.T) {
 	v := ownershipView(t, w, ownership.Unrestricted())
 	rel := &Relationships{manageSources: []ResourceRef{refOf(manager.Ref)}}
 	ApplyOwnership(rel, v, fetched(t, w, subject.Ref))
-	if err := v.Validate(); err != nil {
+	if err := v.ValidateAnswers(); err != nil {
 		t.Fatal(err)
 	}
 	if len(rel.Managers) != 0 {
-		t.Errorf("managers %v, want none; gaps %+v", refsText(rel.Managers), v.Recorders(subject.Ref).Gaps)
+		t.Errorf("managers %v, want none; gaps %+v", refsText(rel.Managers), v.RecordingManagers(subject.Ref).Gaps)
 	}
 }
 
@@ -659,18 +659,18 @@ func TestApplyOwnershipKeepsAReadListOverAGapElsewhere(t *testing.T) {
 // some namespace, though it allows them in alpha.
 type wholeKindUndecided struct{ ownership.Access }
 
-func (a wholeKindUndecided) Read(gk resourceid.GroupKind, namespace string) ownership.Decision {
+func (a wholeKindUndecided) CanRead(gk resourceid.GroupKind, namespace string) ownership.Decision {
 	if gk == ownership.ArgoApplication && namespace == "" {
 		return ownership.Undecided
 	}
-	return a.Access.Read(gk, namespace)
+	return a.Access.CanRead(gk, namespace)
 }
 
 // stalledRecorders answers every Recorders search with Applications unread.
-type stalledRecorders struct{ ownership.Session }
+type stalledRecorders struct{ ownership.ReadSession }
 
-func (stalledRecorders) Recorders(resourceid.Ref) ownership.RecorderRead {
-	return ownership.RecorderRead{Gaps: []ownership.Gap{{Kind: ownership.ArgoApplication, Reason: readreason.KindSyncPending}}}
+func (stalledRecorders) RecordingManagers(resourceid.Ref) ownership.RecordingManagersRead {
+	return ownership.RecordingManagersRead{Gaps: []ownership.Gap{{Kind: ownership.ArgoApplication, Reason: readreason.KindSyncPending}}}
 }
 
 // A manager whose list the search couldn't read keeps its graph edge, even
@@ -687,7 +687,7 @@ func TestApplyOwnershipKeepsTheEdgeOfAManagerBehindAHiddenGap(t *testing.T) {
 	v := ownership.NewView(stalledRecorders{s}, wholeKindUndecided{ownership.Unrestricted()})
 	rel := &Relationships{manageSources: []ResourceRef{refOf(app.Ref)}}
 	ApplyOwnership(rel, v, fetched(t, w, cfg.Ref))
-	if err := v.Validate(); err != nil {
+	if err := v.ValidateAnswers(); err != nil {
 		t.Fatal(err)
 	}
 	if got := refsText(rel.Managers); !slices.Equal(got, []string{app.Ref.String()}) {

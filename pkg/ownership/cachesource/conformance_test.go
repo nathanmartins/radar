@@ -28,8 +28,8 @@ func conform(t *testing.T, w ownershiptest.World) {
 	before := r.storedObjects()
 	got := begin(t, r.source())
 	ownershiptest.Conform(t, want, got, ownershiptest.QueriesFor(w))
-	if err := got.Validate(); err != nil {
-		t.Fatalf("a quiet cache's session failed Validate: %v", err)
+	if err := got.ValidateStores(); err != nil {
+		t.Fatalf("a quiet cache's session failed ValidateStores: %v", err)
 	}
 	resolveAlike(t, w, want, got)
 	viewsAlike(t, w, want, got)
@@ -41,7 +41,7 @@ func conform(t *testing.T, w ownershiptest.World) {
 // resolveAlike checks that ResolveOwner judges every owner reference of every
 // object in w the same over both sessions: the cache source changes nothing a
 // rule can see.
-func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session) {
+func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.ReadSession) {
 	t.Helper()
 	for _, o := range w.Objects {
 		dependent := want.Object(o.Ref)
@@ -60,7 +60,7 @@ func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.Sessi
 // viewsAlike checks that a View gives every answer about every object in w
 // alike over both sessions, for a caller who may read everything and for one
 // who may read less, and that a quiet cache's view holds.
-func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session) {
+func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.ReadSession) {
 	t.Helper()
 	for _, caller := range []ownership.Access{ownership.Unrestricted(), alphaOnly{}} {
 		a, b := ownership.NewView(want, caller), ownership.NewView(got, caller)
@@ -69,8 +69,8 @@ func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session
 				t.Errorf("%v for %T:\n scan  %s\n cache %s", o.Ref, caller, x, y)
 			}
 		}
-		if err := b.Validate(); err != nil {
-			t.Errorf("a quiet cache's view for %T failed Validate: %v", caller, err)
+		if err := b.ValidateAnswers(); err != nil {
+			t.Errorf("a quiet cache's view for %T failed ValidateAnswers: %v", caller, err)
 		}
 	}
 }
@@ -88,16 +88,19 @@ func viewAnswers(v *ownership.View, ref resourceid.Ref) []any {
 		out = append(out, resolution(r))
 	}
 	owner := v.Owner(ref)
-	out = append(out, owner.Index, owner.Several, resolution(owner.Resolution))
+	out = append(out, owner.Reference != nil, owner.Several, resolution(owner.Resolution))
+	if r := owner.Reference; r != nil {
+		out = append(out, r.APIVersion, r.Kind, r.Name, r.UID, r.Controller != nil && *r.Controller)
+	}
 	children := v.Children(ref, 0)
 	for _, c := range children.Children {
-		out = append(out, ident(c.Observation), c.Controller)
+		out = append(out, ident(c))
 	}
 	out = append(out, children.Gaps, children.Truncated, children.Narrowed)
-	root := v.ControllerRoot(ref)
-	out = append(out, root.Root, root.Chain, root.Node, root.Cycle, root.Truncated)
-	if root.Stop != nil {
-		out = append(out, resolution(*root.Stop))
+	root := v.ControllerChain(ref)
+	out = append(out, root.Chain, root.Cycle, root.Truncated)
+	if root.UnfollowedReference != nil {
+		out = append(out, resolution(*root.UnfollowedReference))
 	}
 	if ownership.IsRecordingManager(ref.GroupKind()) {
 		members := v.Members(ref)
@@ -106,26 +109,26 @@ func viewAnswers(v *ownership.View, ref resourceid.Ref) []any {
 		}
 		out = append(out, members.Membership, members.Missing, members.Withheld, members.Unknown, members.Gaps)
 	}
-	recorders := v.Recorders(ref)
-	for _, m := range recorders.Recorders {
+	recorders := v.RecordingManagers(ref)
+	for _, m := range recorders.Managers {
 		out = append(out, ident(m))
 	}
-	out = append(out, recorders.Unreadable, recorders.Unnamed, recorders.Gaps)
+	out = append(out, recorders.Unreadable, recorders.TargetUnresolvable, recorders.Gaps)
 	return out
 }
 
 // alphaOnly may read namespaced objects only in alpha, and no Nodes.
 type alphaOnly struct{}
 
-func (alphaOnly) Read(gk resourceid.GroupKind, namespace string) ownership.Decision {
+func (alphaOnly) CanRead(gk resourceid.GroupKind, namespace string) ownership.Decision {
 	if gk == (resourceid.GroupKind{Kind: "Node"}) || namespace != "" && namespace != "alpha" {
 		return ownership.Denied
 	}
 	return ownership.Allowed
 }
 func (alphaOnly) Namespaces() ([]string, bool) { return []string{"alpha"}, false }
-func (alphaOnly) Everything() bool             { return false }
-func (alphaOnly) AllKindsIn(namespace string) bool {
+func (alphaOnly) CanReadEverything() bool      { return false }
+func (alphaOnly) CanReadAllKindsIn(namespace string) bool {
 	return namespace == "alpha"
 }
 

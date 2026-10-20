@@ -295,8 +295,8 @@ func TestSourceConformsThroughChanges(t *testing.T) {
 				if diffs := ownershiptest.Conform(t, want, got, ownershiptest.QueriesFor(d.w)); diffs > 0 {
 					t.Fatalf("after step %d (%s): %d differences", n, change, diffs)
 				}
-				if err := got.Validate(); err != nil {
-					t.Fatalf("after step %d (%s): Validate: %v", n, change, err)
+				if err := got.ValidateStores(); err != nil {
+					t.Fatalf("after step %d (%s): ValidateStores: %v", n, change, err)
 				}
 				changed++
 			}

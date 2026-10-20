@@ -219,12 +219,12 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 		{resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}, "alpha", ownership.Undecided},
 		{resourceid.GroupKind{Group: "aggregated.io", Kind: "Foo"}, "", ownership.Undecided},
 	} {
-		if got := a.Read(tc.kind, tc.namespace); got != tc.want {
-			t.Errorf("Read(%v, %q) = %v, want %v", tc.kind, tc.namespace, got, tc.want)
+		if got := a.CanRead(tc.kind, tc.namespace); got != tc.want {
+			t.Errorf("CanRead(%v, %q) = %v, want %v", tc.kind, tc.namespace, got, tc.want)
 		}
 	}
-	if a.AllKindsIn("alpha") || a.Everything() {
-		t.Errorf("AllKindsIn(alpha)=%v Everything=%v; Secrets and a Calico policy are hidden in alpha", a.AllKindsIn("alpha"), a.Everything())
+	if a.CanReadAllKindsIn("alpha") || a.CanReadEverything() {
+		t.Errorf("CanReadAllKindsIn(alpha)=%v CanReadEverything=%v; Secrets and a Calico policy are hidden in alpha", a.CanReadAllKindsIn("alpha"), a.CanReadEverything())
 	}
 	// Every kind in a namespace includes each Calico policy kind there.
 	for name, calico := range map[string]bool{"carol": false, "dave": true} {
@@ -235,9 +235,9 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 		p.SetCanI("list", "projectcalico.org", "networkpolicies", "alpha", calico)
 		p.SetCanI("list", "crd.projectcalico.org", "networkpolicies", "alpha", true)
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		got := env.srv.ownershipAccess(r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{Username: name})), catalog).AllKindsIn("alpha")
+		got := env.srv.ownershipAccess(r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{Username: name})), catalog).CanReadAllKindsIn("alpha")
 		if got != calico {
-			t.Errorf("%s: AllKindsIn(alpha) = %v with projectcalico.org policies readable %v", name, got, calico)
+			t.Errorf("%s: CanReadAllKindsIn(alpha) = %v with projectcalico.org policies readable %v", name, got, calico)
 		}
 	}
 	if ns, all := a.Namespaces(); all || len(ns) != 1 || ns[0] != "alpha" {
@@ -250,8 +250,8 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 	gina.SetCanI("list", "", "limitranges", "alpha", false)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	limited := env.srv.ownershipAccess(req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{Username: "gina"})), catalog)
-	if got := limited.Read(resourceid.GroupKind{Kind: "LimitRange"}, "alpha"); got != ownership.Denied || limited.AllKindsIn("alpha") {
-		t.Errorf("gina: Read(LimitRange, alpha) = %v, AllKindsIn(alpha) = %v; gina may not list LimitRanges there", got, limited.AllKindsIn("alpha"))
+	if got := limited.CanRead(resourceid.GroupKind{Kind: "LimitRange"}, "alpha"); got != ownership.Denied || limited.CanReadAllKindsIn("alpha") {
+		t.Errorf("gina: CanRead(LimitRange, alpha) = %v, CanReadAllKindsIn(alpha) = %v; gina may not list LimitRanges there", got, limited.CanReadAllKindsIn("alpha"))
 	}
 
 	// In any namespace: an ordinary kind wherever namespace access reaches; a
@@ -289,7 +289,7 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 		{"erin", nowhere, resourceid.GroupKind{Kind: "Secret"}, ownership.Denied},
 		{"frank, without the cluster's namespaces", unlisted, resourceid.GroupKind{Kind: "Secret"}, ownership.Undecided},
 	} {
-		if got := tc.a.Read(tc.kind, ""); got != tc.want {
+		if got := tc.a.CanRead(tc.kind, ""); got != tc.want {
 			t.Errorf("%s: Read(%v) in any namespace = %v, want %v", tc.name, tc.kind, got, tc.want)
 		}
 	}

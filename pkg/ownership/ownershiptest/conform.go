@@ -13,13 +13,13 @@ import (
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
-// Queries are the questions Conform asks both sessions: Object and Recorders
-// of every ref, OwnerCandidates of every UID in every domain at every limit,
-// and Inventory of every manager.
+// Queries are the questions Conform asks both sessions: Object and RecordingManagers
+// of every ref, DependentCandidates of every UID in every domain at every limit,
+// and Members of every manager.
 type Queries struct {
 	Refs     []resourceid.Ref
 	UIDs     []types.UID
-	Domains  []ownership.Domain
+	Domains  []ownership.SearchScope
 	Limits   []int
 	Managers []resourceid.Ref
 }
@@ -91,10 +91,10 @@ func QueriesFor(w World) Queries {
 
 	slices.Sort(namespaces)
 	namespaces = slices.Compact(namespaces)
-	q.Domains = []ownership.Domain{
+	q.Domains = []ownership.SearchScope{
 		ownership.Everywhere(),
 		{AllNamespaces: true},
-		{ClusterScoped: true},
+		{IncludeClusterScoped: true},
 		{},
 		{Namespaces: []string{"no-such-namespace"}},
 	}
@@ -105,13 +105,13 @@ func QueriesFor(w World) Queries {
 		// AllNamespaces wins over a namespace list; an empty entry never
 		// means every namespace.
 		q.Domains = append(q.Domains,
-			ownership.Domain{AllNamespaces: true, Namespaces: namespaces[:1]},
-			ownership.Domain{Namespaces: []string{"", namespaces[0]}},
+			ownership.SearchScope{AllNamespaces: true, Namespaces: namespaces[:1]},
+			ownership.SearchScope{Namespaces: []string{"", namespaces[0]}},
 		)
 	}
-	q.Domains = append(q.Domains, ownership.Domain{Namespaces: []string{""}, ClusterScoped: true})
+	q.Domains = append(q.Domains, ownership.SearchScope{Namespaces: []string{""}, IncludeClusterScoped: true})
 	if len(namespaces) >= 2 {
-		q.Domains = append(q.Domains, ownership.Domain{Namespaces: []string{namespaces[1], namespaces[0], namespaces[1]}, ClusterScoped: true})
+		q.Domains = append(q.Domains, ownership.SearchScope{Namespaces: []string{namespaces[1], namespaces[0], namespaces[1]}, IncludeClusterScoped: true})
 	}
 	q.Limits = []int{0, 1}
 	return q
@@ -123,8 +123,8 @@ type Asked uint8
 const (
 	AskedObject Asked = iota
 	AskedCandidates
-	AskedRecorders
-	AskedInventory
+	AskedRecordingManagers
+	AskedMembers
 )
 
 // Difference is one question two sessions answered differently.
@@ -136,12 +136,12 @@ type Difference struct {
 	// Coverage: the answers disagree about what was read (gaps or
 	// truncation), not only about objects.
 	Coverage bool
-	// The question itself: Object(Ref), OwnerCandidates(UID, Domain,
-	// Limit), Recorders(Ref) or Inventory(Ref).
+	// The question itself: Object(Ref), DependentCandidates(UID, SearchScope,
+	// Limit), RecordingManagers(Ref) or Members(Ref).
 	Asked  Asked
 	Ref    resourceid.Ref
 	UID    types.UID
-	Domain ownership.Domain
+	Domain ownership.SearchScope
 	Limit  int
 	// WantGaps are the gaps the first session reported for a search.
 	WantGaps []ownership.Gap
@@ -153,7 +153,7 @@ func (d Difference) String() string {
 
 // Differences returns every question on which got answers differently from
 // want.
-func Differences(want, got ownership.Session, q Queries) []Difference {
+func Differences(want, got ownership.ReadSession, q Queries) []Difference {
 	var diffs []Difference
 	for _, ref := range q.Refs {
 		if w, g := want.Object(ref), got.Object(ref); !sameRead(w, g) {
@@ -165,25 +165,25 @@ func Differences(want, got ownership.Session, q Queries) []Difference {
 		}
 	}
 	for _, ref := range q.Refs {
-		if w, g := want.Recorders(ref), got.Recorders(ref); !sameRecorders(w, g) {
-			diffs = append(diffs, Difference{Question: fmt.Sprintf("Recorders(%v)", ref), Want: describeRecorders(w), Got: describeRecorders(g),
-				Objects: differingRecorders(w, g), Coverage: !slices.Equal(w.Gaps, g.Gaps), Asked: AskedRecorders, Ref: ref, WantGaps: w.Gaps})
+		if w, g := want.RecordingManagers(ref), got.RecordingManagers(ref); !sameRecordingManagers(w, g) {
+			diffs = append(diffs, Difference{Question: fmt.Sprintf("RecordingManagers(%v)", ref), Want: describeRecordingManagers(w), Got: describeRecordingManagers(g),
+				Objects: differingRecordingManagers(w, g), Coverage: !slices.Equal(w.Gaps, g.Gaps), Asked: AskedRecordingManagers, Ref: ref, WantGaps: w.Gaps})
 		}
 	}
 	for _, m := range q.Managers {
-		if w, g := want.Inventory(m), got.Inventory(m); !sameInventory(w, g) {
-			unread := func(r ownership.InventoryRead) bool { return r.Manager.State == ownership.Unavailable }
-			diffs = append(diffs, Difference{Question: fmt.Sprintf("Inventory(%v)", m), Want: describeInventory(w), Got: describeInventory(g), Objects: []resourceid.Ref{m},
-				Coverage: unread(w) || unread(g), Asked: AskedInventory, Ref: m})
+		if w, g := want.Members(m), got.Members(m); !sameMembers(w, g) {
+			unread := func(r ownership.MembersRead) bool { return r.Manager.State == ownership.Unavailable }
+			diffs = append(diffs, Difference{Question: fmt.Sprintf("Members(%v)", m), Want: describeMembers(w), Got: describeMembers(g), Objects: []resourceid.Ref{m},
+				Coverage: unread(w) || unread(g), Asked: AskedMembers, Ref: m})
 		}
 	}
 	for _, uid := range q.UIDs {
 		for _, d := range q.Domains {
 			for _, limit := range q.Limits {
-				w, g := want.OwnerCandidates(uid, d, limit), got.OwnerCandidates(uid, d, limit)
+				w, g := want.DependentCandidates(uid, d, limit), got.DependentCandidates(uid, d, limit)
 				if !sameCandidates(w, g) {
 					diffs = append(diffs, Difference{
-						Question: fmt.Sprintf("OwnerCandidates(%q, %+v, %d)", uid, d, limit),
+						Question: fmt.Sprintf("DependentCandidates(%q, %+v, %d)", uid, d, limit),
 						Want:     describeCandidates(w), Got: describeCandidates(g),
 						Objects:  differingCandidates(w, g),
 						Coverage: w.Truncated != g.Truncated || !slices.Equal(w.Gaps, g.Gaps),
@@ -198,7 +198,7 @@ func Differences(want, got ownership.Session, q Queries) []Difference {
 
 // Conform fails t for every question on which got answers differently from
 // want. It returns the number of differences.
-func Conform(t testing.TB, want, got ownership.Session, q Queries) int {
+func Conform(t testing.TB, want, got ownership.ReadSession, q Queries) int {
 	t.Helper()
 	diffs := Differences(want, got, q)
 	const shown = 20
@@ -214,7 +214,7 @@ func Conform(t testing.TB, want, got ownership.Session, q Queries) int {
 
 // differingCandidates returns the objects one answer has and the other
 // doesn't, or has differently.
-func differingCandidates(a, b ownership.CandidateRead) []resourceid.Ref {
+func differingCandidates(a, b ownership.DependentCandidatesRead) []resourceid.Ref {
 	seen := map[resourceid.Ref]ownership.Observation{}
 	for _, c := range a.Candidates {
 		seen[c.Ref] = c
@@ -233,11 +233,11 @@ func differingCandidates(a, b ownership.CandidateRead) []resourceid.Ref {
 	return out
 }
 
-// differingRecorders returns the managers one answer lists as recording, or
+// differingRecordingManagers returns the managers one answer lists as recording, or
 // as unreadable, and the other doesn't, or lists differently.
-func differingRecorders(a, b ownership.RecorderRead) []resourceid.Ref {
-	out := differingCandidates(ownership.CandidateRead{Candidates: a.Recorders}, ownership.CandidateRead{Candidates: b.Recorders})
-	for _, lists := range [][2][]resourceid.Ref{{a.Elsewhere, b.Elsewhere}, {a.Unreadable, b.Unreadable}} {
+func differingRecordingManagers(a, b ownership.RecordingManagersRead) []resourceid.Ref {
+	out := differingCandidates(ownership.DependentCandidatesRead{Candidates: a.Managers}, ownership.DependentCandidatesRead{Candidates: b.Managers})
+	for _, lists := range [][2][]resourceid.Ref{{a.Remote, b.Remote}, {a.Unreadable, b.Unreadable}} {
 		for _, ref := range lists[0] {
 			if !slices.Contains(lists[1], ref) {
 				out = append(out, ref)
@@ -253,31 +253,31 @@ func differingRecorders(a, b ownership.RecorderRead) []resourceid.Ref {
 	return slices.Compact(out)
 }
 
-func sameRecorders(a, b ownership.RecorderRead) bool {
-	if a.Unnamed != b.Unnamed || !slices.Equal(a.Gaps, b.Gaps) || !slices.Equal(a.Elsewhere, b.Elsewhere) || !slices.Equal(a.Unreadable, b.Unreadable) || len(a.Recorders) != len(b.Recorders) {
+func sameRecordingManagers(a, b ownership.RecordingManagersRead) bool {
+	if a.TargetUnresolvable != b.TargetUnresolvable || !slices.Equal(a.Gaps, b.Gaps) || !slices.Equal(a.Remote, b.Remote) || !slices.Equal(a.Unreadable, b.Unreadable) || len(a.Managers) != len(b.Managers) {
 		return false
 	}
-	for i := range a.Recorders {
-		if !sameObservation(a.Recorders[i], b.Recorders[i]) {
+	for i := range a.Managers {
+		if !sameObservation(a.Managers[i], b.Managers[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-func sameInventory(a, b ownership.InventoryRead) bool {
+func sameMembers(a, b ownership.MembersRead) bool {
 	return sameRead(a.Manager, b.Manager) && a.Membership == b.Membership && slices.Equal(a.Members, b.Members) && (a.Members == nil) == (b.Members == nil)
 }
 
-func describeRecorders(r ownership.RecorderRead) string {
+func describeRecordingManagers(r ownership.RecordingManagersRead) string {
 	var refs []string
-	for _, m := range r.Recorders {
+	for _, m := range r.Managers {
 		refs = append(refs, describeObservation(m))
 	}
-	return fmt.Sprintf("recorders [%s] elsewhere %v unreadable %v unnamed %v gaps %+v", strings.Join(refs, ", "), r.Elsewhere, r.Unreadable, r.Unnamed, r.Gaps)
+	return fmt.Sprintf("recorders [%s] elsewhere %v unreadable %v unnamed %v gaps %+v", strings.Join(refs, ", "), r.Remote, r.Unreadable, r.TargetUnresolvable, r.Gaps)
 }
 
-func describeInventory(r ownership.InventoryRead) string {
+func describeMembers(r ownership.MembersRead) string {
 	if r.Manager.State != ownership.Present {
 		return "manager " + describeRead(r.Manager)
 	}
@@ -291,7 +291,7 @@ func sameRead(a, b ownership.ObjectRead) bool {
 	return a.State == b.State && a.Gap == b.Gap && sameObservation(a.Object, b.Object)
 }
 
-func sameCandidates(a, b ownership.CandidateRead) bool {
+func sameCandidates(a, b ownership.DependentCandidatesRead) bool {
 	if a.Truncated != b.Truncated || !slices.Equal(a.Gaps, b.Gaps) || len(a.Candidates) != len(b.Candidates) {
 		return false
 	}
@@ -304,20 +304,12 @@ func sameCandidates(a, b ownership.CandidateRead) bool {
 }
 
 // SameObservation reports whether two observations are of the same object
-// in the same state, comparing timestamps by instant.
+// in the same state.
 func SameObservation(a, b ownership.Observation) bool {
 	return sameObservation(a, b)
 }
 
 func sameObservation(a, b ownership.Observation) bool {
-	at, bt := a.DeletionTimestamp, b.DeletionTimestamp
-	if (at == nil) != (bt == nil) || at != nil && !at.Equal(bt) {
-		return false
-	}
-	a.DeletionTimestamp, b.DeletionTimestamp = nil, nil
-	if len(a.Finalizers) == 0 && len(b.Finalizers) == 0 {
-		a.Finalizers, b.Finalizers = nil, nil
-	}
 	if len(a.OwnerReferences) == 0 && len(b.OwnerReferences) == 0 {
 		a.OwnerReferences, b.OwnerReferences = nil, nil
 	}
@@ -336,7 +328,7 @@ func describeRead(r ownership.ObjectRead) string {
 	return fmt.Sprintf("unavailable %+v", r.Gap)
 }
 
-func describeCandidates(r ownership.CandidateRead) string {
+func describeCandidates(r ownership.DependentCandidatesRead) string {
 	var refs []string
 	for _, c := range r.Candidates {
 		refs = append(refs, describeObservation(c))
@@ -356,9 +348,5 @@ func describeObservation(o ownership.Observation) string {
 		}
 		owners = append(owners, fmt.Sprintf("%s %s/%s %s%s", ref.APIVersion, ref.Kind, ref.Name, ref.UID, flags))
 	}
-	deleting := ""
-	if o.DeletionTimestamp != nil {
-		deleting = " deleting " + o.DeletionTimestamp.UTC().Format("15:04:05")
-	}
-	return fmt.Sprintf("%v@%s uid=%s rv=%s owners=[%s] finalizers=%v%s", o.Ref, o.APIVersion, o.UID, o.ResourceVersion, strings.Join(owners, "; "), o.Finalizers, deleting)
+	return fmt.Sprintf("%v@%s uid=%s rv=%s owners=[%s]", o.Ref, o.APIVersion, o.UID, o.ResourceVersion, strings.Join(owners, "; "))
 }

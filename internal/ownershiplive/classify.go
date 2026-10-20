@@ -46,7 +46,7 @@ const (
 // settled reads ref from the cache and from the API server until both say
 // the same: absent, or present in the same state. It reports what the API
 // server says, and false if they never agreed.
-func (st settle) settled(ref resourceid.Ref, cache ownership.Session, api apiRead) (ownershiptest.Object, bool, bool) {
+func (st settle) settled(ref resourceid.Ref, cache ownership.ReadSession, api apiRead) (ownershiptest.Object, bool, bool) {
 	for try := range st.tries {
 		if try > 0 {
 			time.Sleep(st.pause)
@@ -80,7 +80,7 @@ func changedSince(listed map[resourceid.Ref]ownershiptest.Object, ref resourceid
 // it disputes have caught up, and checks the whole fresh answer against the
 // API server's current copies (see the holds methods). Coverage differences
 // are unresolved.
-func (st settle) recheck(d ownershiptest.Difference, listed map[resourceid.Ref]ownershiptest.Object, cache ownership.Session, api apiRead) outcome {
+func (st settle) recheck(d ownershiptest.Difference, listed map[resourceid.Ref]ownershiptest.Object, cache ownership.ReadSession, api apiRead) outcome {
 	if d.Coverage || len(d.Objects) == 0 {
 		return unresolved
 	}
@@ -94,9 +94,9 @@ func (st settle) recheck(d ownershiptest.Difference, listed map[resourceid.Ref]o
 	switch d.Asked {
 	case ownershiptest.AskedCandidates:
 		holds = r.candidatesHold(d)
-	case ownershiptest.AskedRecorders:
+	case ownershiptest.AskedRecordingManagers:
 		holds = r.recordersHold(d)
-	case ownershiptest.AskedInventory:
+	case ownershiptest.AskedMembers:
 		holds = r.inventoryHolds(d)
 	}
 	switch {
@@ -113,7 +113,7 @@ func (st settle) recheck(d ownershiptest.Difference, listed map[resourceid.Ref]o
 type rechecking struct {
 	settle
 	listed  map[resourceid.Ref]ownershiptest.Object
-	cache   ownership.Session
+	cache   ownership.ReadSession
 	api     apiRead
 	current map[resourceid.Ref]ownershiptest.Object
 	exists  map[resourceid.Ref]bool
@@ -144,7 +144,7 @@ const answers = 2
 // matches that copy exactly; and it owes nothing (see owes).
 func (r *rechecking) candidatesHold(d ownershiptest.Difference) bool {
 	for range answers {
-		fresh := r.cache.OwnerCandidates(d.UID, d.Domain, d.Limit)
+		fresh := r.cache.DependentCandidates(d.UID, d.Domain, d.Limit)
 		if fresh.Truncated || !slices.Equal(fresh.Gaps, d.WantGaps) {
 			return false
 		}
@@ -220,7 +220,7 @@ func (r *rechecking) recordersHold(d ownershiptest.Difference) bool {
 		return recorded || elsewhere || unreadable
 	}
 	for range answers {
-		fresh := r.cache.Recorders(d.Ref)
+		fresh := r.cache.RecordingManagers(d.Ref)
 		if !slices.Equal(fresh.Gaps, d.WantGaps) {
 			return false
 		}
@@ -232,12 +232,12 @@ func (r *rechecking) recordersHold(d ownershiptest.Difference) bool {
 			seen[m] = true
 			return r.exists[m] && says(lists(r.current[m], d.Ref))
 		}
-		for _, c := range fresh.Recorders {
+		for _, c := range fresh.Managers {
 			if !named(c.Ref, func(recorded, _, _ bool) bool { return recorded }) || !ownershiptest.SameObservation(c, ownershiptest.Observe(r.current[c.Ref])) {
 				return false
 			}
 		}
-		for _, m := range fresh.Elsewhere {
+		for _, m := range fresh.Remote {
 			if !named(m, func(_, elsewhere, _ bool) bool { return elsewhere }) {
 				return false
 			}
@@ -257,7 +257,7 @@ func (r *rechecking) recordersHold(d ownershiptest.Difference) bool {
 			if seen[m] || !ownership.IsRecordingManager(m.GroupKind()) || unread(fresh.Gaps, m) {
 				continue
 			}
-			inv := r.cache.Inventory(m)
+			inv := r.cache.Members(m)
 			cached := inv.Manager.State == ownership.Present && (inv.Membership == ownership.MembersUnreadable || slices.Contains(inv.Members, d.Ref))
 			if mentions(o) || cached {
 				suspects = append(suspects, m)
@@ -277,7 +277,7 @@ func (r *rechecking) recordersHold(d ownershiptest.Difference) bool {
 // inventoryHolds: the fresh read of the manager matches its current copy, and
 // so does what it says of its members.
 func (r *rechecking) inventoryHolds(d ownershiptest.Difference) bool {
-	fresh := r.cache.Inventory(d.Ref)
+	fresh := r.cache.Members(d.Ref)
 	if !r.exists[d.Ref] {
 		return fresh.Manager.State == ownership.Absent
 	}
@@ -291,7 +291,7 @@ func (r *rechecking) inventoryHolds(d ownershiptest.Difference) bool {
 // recheckResolution is recheck for a ResolveOwner difference: once the owner
 // has caught up, the cache's resolution must be what the owner's current
 // state implies. The dependent need not have changed.
-func (st settle) recheckResolution(want, got ownership.OwnerResolution, dependent ownership.Observation, ref metav1.OwnerReference, listed map[resourceid.Ref]ownershiptest.Object, cache ownership.Session, api apiRead) outcome {
+func (st settle) recheckResolution(want, got ownership.OwnerResolution, dependent ownership.Observation, ref metav1.OwnerReference, listed map[resourceid.Ref]ownershiptest.Object, cache ownership.ReadSession, api apiRead) outcome {
 	if want.Ref != got.Ref || want.Ref == (resourceid.Ref{}) || want.Gap != got.Gap {
 		return unresolved
 	}
@@ -326,9 +326,9 @@ func unread(gaps []ownership.Gap, ref resourceid.Ref) bool {
 
 // inDomain reports whether a search of d covers ref, an object of a
 // cluster-scoped kind when it has no namespace.
-func inDomain(ref resourceid.Ref, d ownership.Domain) bool {
+func inDomain(ref resourceid.Ref, d ownership.SearchScope) bool {
 	if ref.Namespace == "" {
-		return d.ClusterScoped
+		return d.IncludeClusterScoped
 	}
 	return d.AllNamespaces || slices.Contains(d.Namespaces, ref.Namespace)
 }
