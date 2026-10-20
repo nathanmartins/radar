@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -237,6 +238,9 @@ type AuditActionDetails struct {
 	Variable  string
 	Source    string
 	Outcome   string
+	Command   []string
+	ExitCode  *int
+	Duration  time.Duration
 }
 
 func AuditLogAction(r *http.Request, details AuditActionDetails) {
@@ -245,6 +249,14 @@ func AuditLogAction(r *http.Request, details AuditActionDetails) {
 	if user := UserFromContext(r.Context()); user != nil {
 		username = user.Username
 		groups = user.Groups
+	}
+	if details.Action == "exec_pod" {
+		code := "unknown"
+		if details.ExitCode != nil {
+			code = strconv.Itoa(*details.ExitCode)
+		}
+		log.Printf("[audit] user=%q groups=%q action=%q path=%q ns=%q name=%q container=%q source=%q outcome=%q argv=%q exitCode=%s duration=%s", username, groups, details.Action, r.URL.Path, details.Namespace, details.Name, details.Container, details.Source, details.Outcome, details.Command, code, details.Duration)
+		return
 	}
 	log.Printf("[audit] user=%q groups=%q action=%q path=%q ns=%q name=%q container=%q variable=%q source=%q outcome=%q",
 		username, groups, details.Action, r.URL.Path, details.Namespace, details.Name,
