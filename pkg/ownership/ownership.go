@@ -19,11 +19,17 @@ type Source interface {
 	Begin() (ReadSession, error)
 }
 
-// ReadSession reads observations and records which store served each read, so an
-// answer assembled from several reads can be checked for having mixed a store
-// with its replacement. Reads are not a snapshot: each sees its store as it is
-// when read, so an answer should read each object once. A session is not safe
-// for concurrent use.
+// ReadSession reads observations and records which store served each read, so
+// an answer assembled from several reads can be checked for having mixed a
+// store with its replacement. Reads are not a snapshot: each sees its store as
+// it is when read, so an answer should read each object once. A session is not
+// safe for concurrent use.
+//
+// A session does no authorization: it reads everything Radar collected,
+// whoever asks, and its coverage describes Radar's collection, not what a
+// caller may see. A host decides what its caller may read before it shows an
+// answer; ValidateStores says the reads came from live stores, not that anyone
+// may see them.
 type ReadSession interface {
 	// Catalog is the served API as of Begin. It never changes.
 	Catalog() *Catalog
@@ -31,13 +37,15 @@ type ReadSession interface {
 	Object(ref resourceid.Ref) ObjectRead
 	// DependentCandidates finds the objects of the catalog's dependent kinds in
 	// domain whose owner references name uid, at most limit of them (0 for
-	// no limit). It does no I/O and waits for nothing.
+	// no limit). The limit caps what it returns, not the search: it gathers
+	// every match first. It does no I/O and waits for nothing.
 	DependentCandidates(uid types.UID, domain SearchScope, limit int) DependentCandidatesRead
 	// Members reads the member list in a manager's status; a manager must
 	// be of a RecordingManagers kind. It does no I/O and waits for nothing.
 	Members(manager resourceid.Ref) MembersRead
-	// RecordingManagers finds the local managers, in every namespace, whose member
-	// lists name ref. It does no I/O and waits for nothing.
+	// RecordingManagers finds the local managers, in every namespace, whose
+	// member lists name ref, whatever namespaces the caller may read. It does no
+	// I/O and waits for nothing.
 	RecordingManagers(ref resourceid.Ref) RecordingManagersRead
 	// ValidateStores returns nil if every store the session read is still the one
 	// serving what it served then, and no version of a resource it read, left

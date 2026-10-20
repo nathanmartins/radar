@@ -2208,8 +2208,8 @@ func (d *DynamicResourceCache) ReadServer(gvr schema.GroupVersionResource, names
 
 // ReadableObject gets one object from the informers serving gvr in namespace
 // now ("" for a cluster-scoped resource), without probing, starting a watch or
-// waiting for one. found reports whether they hold it; ok is false unless they
-// had completed their initial list before the read, in which case a miss
+// waiting for one. found reports whether they hold it. ok is true only if they
+// had completed their initial list before the read; when ok is false, a miss
 // proves nothing. server identifies the informers that answered, for a caller
 // that must know later reads came from the same ones.
 //

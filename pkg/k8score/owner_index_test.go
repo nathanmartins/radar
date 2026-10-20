@@ -171,7 +171,7 @@ func TestTypedOwnerIndexFollowsUpdatesAndDeletes(t *testing.T) {
 	if _, err := client.CoreV1().Pods("alpha").Update(ctx, moved, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the update", func() bool {
+	waitUntil(t, 5*time.Second, "the update", func() bool {
 		got, _ := rc.ReadableDependents(Pods, nil, "uid-new")
 		return len(got) == 1
 	})
@@ -181,28 +181,17 @@ func TestTypedOwnerIndexFollowsUpdatesAndDeletes(t *testing.T) {
 	if err := client.CoreV1().Pods("alpha").Delete(ctx, "p", metav1.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the delete", func() bool {
+	waitUntil(t, 5*time.Second, "the delete", func() bool {
 		got, _ := rc.ReadableDependents(Pods, nil, "uid-new")
 		return len(got) == 0
 	})
 	if _, err := client.AppsV1().ReplicaSets("alpha").Create(ctx, &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "rs", OwnerReferences: []metav1.OwnerReference{ownerRef("Deployment", "d", "uid-d")}}}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the create", func() bool {
+	waitUntil(t, 5*time.Second, "the create", func() bool {
 		got, _ := rc.ReadableDependents(ReplicaSets, []string{"alpha"}, "uid-d")
 		return len(got) == 1
 	})
-}
-
-func waitFor(t *testing.T, what string, done func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !done() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
 }
 
 func TestDynamicReadableIndexedReadsOnlyItsServingInformers(t *testing.T) {
@@ -227,7 +216,7 @@ func TestDynamicReadableIndexedReadsOnlyItsServingInformers(t *testing.T) {
 	if err := d.startWatching(gvr, "alpha"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "alpha's informer", func() bool { return d.IsNamespaceSynced(gvr, "alpha") })
+	waitUntil(t, 5*time.Second, "alpha's informer", func() bool { return d.IsNamespaceSynced(gvr, "alpha") })
 	got, server, ok := d.ReadableIndexed(gvr, "alpha", OwnerUIDIndex, "uid-d")
 	if !ok || !slices.Equal(names(got), []string{"a"}) {
 		t.Fatalf("alpha = %v, %v", names(got), ok)
@@ -241,7 +230,7 @@ func TestDynamicReadableIndexedReadsOnlyItsServingInformers(t *testing.T) {
 	if err := d.startWatching(gvr, ""); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the cluster-wide informer", func() bool { return d.IsClusterWideSynced(gvr) })
+	waitUntil(t, 5*time.Second, "the cluster-wide informer", func() bool { return d.IsClusterWideSynced(gvr) })
 	all, _, ok := d.ReadableIndexed(gvr, "", OwnerUIDIndex, "uid-d")
 	if !ok || !slices.Equal(names(all), []string{"a", "b"}) {
 		t.Fatalf("cluster-wide = %v, %v", names(all), ok)
