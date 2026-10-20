@@ -43,7 +43,22 @@ const (
 )
 
 func (s OwnerState) String() string {
-	return [...]string{"unknown", "found", "gone", "replaced", "unresolvable", "excluded", "withheld"}[s]
+	switch s {
+	case OwnerFound:
+		return "found"
+	case OwnerGone:
+		return "gone"
+	case OwnerReplaced:
+		return "replaced"
+	case OwnerUnresolvable:
+		return "unresolvable"
+	case OwnerExcluded:
+		return "excluded"
+	case OwnerWithheld:
+		return "withheld"
+	default:
+		return "unknown"
+	}
 }
 
 // OwnerResolution is one owner reference resolved.
@@ -84,18 +99,16 @@ func resolveOwner(catalog *Catalog, dependent Observation, ref metav1.OwnerRefer
 		// Events are outside ownership, whatever discovery lists.
 		return OwnerResolution{State: OwnerExcluded, Ref: resourceid.Ref{Group: gk.Group, Kind: gk.Kind, Namespace: dependent.Ref.Namespace, Name: ref.Name}}
 	}
-	unknown := func(namespace string) OwnerResolution {
-		return OwnerResolution{Gap: Gap{Kind: gk, Namespace: namespace, Reason: readreason.ReadError}}
-	}
+	unknown := OwnerResolution{Gap: Gap{Kind: gk, Reason: readreason.ReadError}}
 	if !spelled || catalog.Ambiguous(gk) {
-		return unknown("")
+		return unknown
 	}
 	kind, known := catalog.Kind(gk)
 	if !known || !catalog.mapsAt(gk, gv.Version) {
 		if namespaced, ambiguous, made := catalog.listKind(gk, gv.Version); made {
 			switch {
 			case ambiguous:
-				return unknown("")
+				return unknown
 			case namespaced && dependent.Ref.Namespace == "":
 				return OwnerResolution{State: OwnerUnresolvable}
 			}
@@ -110,7 +123,7 @@ func resolveOwner(catalog *Catalog, dependent Observation, ref metav1.OwnerRefer
 		// than the collector's discovery. So what discovery didn't list is
 		// unknown, never unresolvable.
 		if !catalog.Complete() {
-			return unknown("")
+			return unknown
 		}
 		return OwnerResolution{Gap: Gap{Kind: gk, Reason: readreason.KindUnknown}}
 	}

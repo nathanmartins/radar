@@ -93,12 +93,23 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 			map[string]any{"id": "shop_web-podinfo__Service", "v": "v1"},
 		}}}), ownership.MembersRemote, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "web-podinfo"}}},
 		{"a HelmRelease applying elsewhere, without an inventory", manager(hr, map[string]any{"kubeConfig": map[string]any{"secretRef": map[string]any{"name": "prod"}}}, nil), ownership.MembersUnreadable, nil},
-		// Suspended in the same write that removed spec.kubeConfig: the
-		// inventory is still the other cluster's.
-		{"a Kustomization whose inventory predates its spec", atGeneration(manager(ks, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{
+		// spec.kubeConfig removed and the reconcile failed, or hasn't run:
+		// the inventory may still be the other cluster's.
+		{"a Kustomization whose inventory predates its spec", atGeneration(manager(ks, map[string]any{"prune": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_ui__Service", "v": "v1"},
 		}}}), 2), ownership.MembersUnreadable, nil},
-		{"a HelmRelease whose inventory predates its spec", atGeneration(manager(hr, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{}}}), 2), ownership.MembersUnreadable, nil},
+		{"a HelmRelease whose inventory predates its spec", atGeneration(manager(hr, map[string]any{"releaseName": "web"}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{}}}), 2), ownership.MembersUnreadable, nil},
+		// Suspending writes the spec, and the controllers record that
+		// generation as observed without applying anything, so the inventory
+		// of the last apply reads, as it must for a suspended object's members
+		// to keep their manager. A destination changed in that write isn't
+		// detected.
+		{"a Kustomization suspended while Ready", atGeneration(manager(ks, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(2), "inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "shop_ui__Service", "v": "v1"},
+		}}}), 2), ownership.MembersRecorded, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
+		{"a suspended HelmRelease", atGeneration(manager(hr, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(2), "inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "shop_web-podinfo__Service", "v": "v1"},
+		}}}), 2), ownership.MembersRecorded, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "web-podinfo"}}},
 		{"a Kustomization that reconciled its spec", atGeneration(manager(ks, nil, map[string]any{"observedGeneration": int64(2), "inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_ui__Service", "v": "v1"},
 		}}}), 2), ownership.MembersRecorded, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
@@ -224,6 +235,21 @@ func TestRecordersOfABuiltInDiscoveryDisputes(t *testing.T) {
 	}
 }
 
+// A manager kind two resources of its group serve can't be read as either, so
+// a manager of that kind may record the object unseen.
+func TestRecordersLeaveAnAmbiguousManagerKindUnread(t *testing.T) {
+	w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}}
+	for _, k := range ownershiptest.Kinds {
+		w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
+	}
+	w.Resources = append(w.Resources, ownership.ServedResource{Group: ownership.ArgoApplication.Group, Version: "v1alpha1", Kind: ownership.ArgoApplication.Kind,
+		Resource: "otherapplications", Namespaced: true, Verbs: []string{"delete", "get", "list", "watch"}})
+	got := begin(t, render(t, w).source()).Recorders(resourceid.Ref{Kind: "ConfigMap", Namespace: "alpha", Name: "cfg"})
+	if want := (ownership.Gap{Kind: ownership.ArgoApplication, Reason: readreason.ReadError}); !slices.Contains(got.Gaps, want) || got.Complete() {
+		t.Fatalf("Recorders = %+v, complete %v; want the gap %+v", got, got.Complete(), want)
+	}
+}
+
 // An answer is complete only when no remote manager may record the object
 // and no manager's list is unreadable.
 func TestRecordersAreCompleteOnlyWithoutDoubt(t *testing.T) {
@@ -344,9 +370,9 @@ func TestMemberStateCostDoesNotGrowWithTheList(t *testing.T) {
 	}
 }
 
-// A Flux object suspended in the write that removed spec.kubeConfig keeps
-// the other cluster's inventory; Recorders must not take its entries for
-// this cluster's objects, or call the answer complete.
+// A Flux object whose spec.kubeConfig was removed keeps the other cluster's
+// inventory until a reconcile of the new spec succeeds; Recorders must not
+// take its entries for this cluster's objects, or call the answer complete.
 func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 	for _, kind := range []resourceid.GroupKind{ownership.FluxKustomization, ownership.FluxHelmRelease} {
 		t.Run(kind.Kind, func(t *testing.T) {
@@ -367,7 +393,7 @@ func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 			if err := unstructured.SetNestedField(u.Object, int64(1), "status", "observedGeneration"); err != nil {
 				t.Fatal(err)
 			}
-			u.Object["spec"] = map[string]any{"suspend": true}
+			u.Object["spec"] = map[string]any{}
 			u.SetGeneration(2)
 			u.SetResourceVersion("2")
 			if _, err := client.Update(context.Background(), u, metav1.UpdateOptions{}); err != nil {

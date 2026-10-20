@@ -48,6 +48,31 @@ func resolve(t *testing.T, w ownershiptest.World, dependent ownershiptest.Object
 }
 
 // Each case is how Kubernetes' garbage collector judges the reference.
+// A state's name goes on the wire; a value no constant names reads as
+// unknown rather than panicking.
+func TestOwnerStateNames(t *testing.T) {
+	for state, want := range map[ownership.OwnerState]string{
+		ownership.OwnerUnknown: "unknown", ownership.OwnerFound: "found", ownership.OwnerGone: "gone",
+		ownership.OwnerReplaced: "replaced", ownership.OwnerUnresolvable: "unresolvable", ownership.OwnerExcluded: "excluded",
+		ownership.OwnerWithheld: "withheld", ownership.OwnerState(99): "unknown",
+	} {
+		if got := state.String(); got != want {
+			t.Errorf("OwnerState(%d) = %q, want %q", state, got, want)
+		}
+	}
+}
+
+func TestMembershipStateNames(t *testing.T) {
+	for state, want := range map[ownership.MembershipState]string{
+		ownership.MembersUnreadable: "unreadable", ownership.MembersRecorded: "recorded", ownership.MembersRemote: "remote",
+		ownership.MembershipState(99): "unreadable",
+	} {
+		if got := state.String(); got != want {
+			t.Errorf("MembershipState(%d) = %q, want %q", state, got, want)
+		}
+	}
+}
+
 func TestResolveOwnerJudgesReferencesAsTheCollectorDoes(t *testing.T) {
 	w := ownershiptest.Fixture()
 	ns := func(group, kind, namespace, name string) resourceid.Ref {

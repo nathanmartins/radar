@@ -170,7 +170,10 @@ func (c *Catalog) Serves(gk resourceid.GroupKind, version string) bool {
 // referencedKind is the kind an owner reference's group and kind name as the
 // garbage collector's discovery RESTMapper reads them: the kind as spelled,
 // or the kind whose all-lowercase spelling it is. ok is false when that
-// spelling is two kinds'.
+// spelling is two kinds'. Two rarer collisions resolve as spelled although
+// the collector's mapping depends on the order discovery lists the kinds in:
+// a served kind that is another's all-lowercase spelling, and a served kind
+// named another served kind of the group plus List.
 func (c *Catalog) referencedKind(gk resourceid.GroupKind) (resourceid.GroupKind, bool) {
 	if _, known := c.kinds[gk]; known || c.Ambiguous(gk) {
 		return gk, true

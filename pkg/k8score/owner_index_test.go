@@ -118,6 +118,27 @@ func TestTypedReadableDependentsUsesEveryStoreItsTargetNeeds(t *testing.T) {
 	}
 }
 
+// A collector of one namespace holds its store under no namespace, as one
+// cluster-wide informer does; a read of a namespace it doesn't collect must
+// still fail rather than find nothing there.
+func TestTypedReadableDependentsRefusesANamespaceOneNamespaceCollectorLacks(t *testing.T) {
+	rs := ownerRef("ReplicaSet", "web-1", "uid-rs")
+	client := fake.NewClientset(ownedPod("alpha", "a1", rs), ownedPod("beta", "b1", rs))
+	rc, err := NewResourceCache(CacheConfig{Client: client, ResourceScopes: map[string]ResourceScope{Pods: {Enabled: true, Namespace: "alpha"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Stop()
+	if alpha, ok := rc.ReadableDependents(Pods, []string{"alpha"}, "uid-rs"); !ok || !slices.Equal(objectNames(alpha), []string{"a1"}) {
+		t.Fatalf("alpha = %v, %v; want [a1]", objectNames(alpha), ok)
+	}
+	for _, namespace := range []string{"beta", "gamma"} {
+		if got, ok := rc.ReadableDependents(Pods, []string{namespace}, "uid-rs"); ok {
+			t.Fatalf("%s = %v, read as complete; the collector holds only alpha", namespace, objectNames(got))
+		}
+	}
+}
+
 func TestTypedReadableDependentsRefusesWhatItCannotAnswer(t *testing.T) {
 	rs := ownerRef("ReplicaSet", "web-1", "uid-rs")
 	client := fake.NewClientset(&corev1.Event{ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "e", OwnerReferences: []metav1.OwnerReference{rs}}})

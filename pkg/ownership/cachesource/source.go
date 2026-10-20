@@ -29,6 +29,16 @@ func (c Caches) retired() bool {
 	return c.Typed.Stopped() || c.Dynamic.Stopped()
 }
 
+// replacedBy reports whether now replaces a cache of c. A cache c lacks that
+// now has, as when Radar publishes its dynamic cache after its typed one,
+// replaces nothing: reads through the missing cache answered that it wasn't
+// there.
+func (c Caches) replacedBy(now Caches) bool {
+	return c.Typed != now.Typed ||
+		c.Dynamic != nil && c.Dynamic != now.Dynamic ||
+		c.Discovery != nil && c.Discovery != now.Discovery
+}
+
 // Source reads from the caches current returns. It calls current when a
 // session begins and again when it validates: what current returns must change
 // only when the host replaces its caches.
@@ -101,6 +111,9 @@ type session struct {
 	// unconsulted holds, for each resource the session reads, the versions
 	// the catalog serves that weren't watched when it chose its versions. One
 	// watched later may hold what the others lack, so Validate checks them.
+	// A version it chose, watched only elsewhere then, that starts serving a
+	// namespace after the session read there is not checked: like a version
+	// still loading there, it may hold a later update the answer lacks.
 	unconsulted map[schema.GroupResource][]schema.GroupVersionResource
 	// served records the informers that first answered each resource and
 	// namespace the session read dynamically.
@@ -164,6 +177,10 @@ func (s *session) dynamicObject(ref resourceid.Ref, borrow func(*unstructured.Un
 	}
 	kind, known := s.catalog.Kind(ref.GroupKind())
 	if !known {
+		if !s.catalog.Complete() {
+			// The group discovery missed may serve it.
+			return unavailable(ref, readreason.ReadError)
+		}
 		return unavailable(ref, readreason.KindUnknown)
 	}
 	if reason, wrong := scopeMismatch(ref, kind.Namespaced); wrong {
@@ -274,7 +291,7 @@ func (s *session) record(gvr schema.GroupVersionResource, namespace string, serv
 }
 
 func (s *session) Validate() error {
-	if now := s.current(); now != s.caches || s.caches.retired() {
+	if s.caches.replacedBy(s.current()) || s.caches.retired() {
 		return ownership.ErrCachesReplaced
 	}
 	// A store replaced between two reads of one resource and namespace is no
