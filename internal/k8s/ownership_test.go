@@ -1,9 +1,12 @@
 package k8s
 
 import (
+	"context"
 	"errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"slices"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -84,7 +87,7 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 		t.Run(tc.name, func(t *testing.T) {
 			tc.source.t = t
 			rel := &topology.Relationships{}
-			present := func(rel *topology.Relationships, _ ownership.Session) {
+			present := func(rel *topology.Relationships, _ *ownership.View, _ ownership.Session) {
 				tc.source.calls = append(tc.source.calls, "present")
 				rel.InactiveChildren = append(rel.InactiveChildren, topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "alpha", Name: "old"})
 			}
@@ -108,52 +111,73 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 	}
 }
 
-// A Deployment's history moves out of Children only for ReplicaSets the cache
-// holds with no Pod naming them, read through the session's own cache.
-func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
-	const revision = "deployment.kubernetes.io/revision"
-	replicas := func(n int32) *int32 { return &n }
-	controller := true
-	replicaSet := func(name, rev string, desired, running int32) *appsv1.ReplicaSet {
-		return &appsv1.ReplicaSet{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name, UID: types.UID("uid-" + name), Annotations: map[string]string{revision: rev}},
-			Spec:       appsv1.ReplicaSetSpec{Replicas: replicas(desired)},
-			Status:     appsv1.ReplicaSetStatus{Replicas: running},
-		}
-	}
-	podOf := func(name, rs string) *corev1.Pod {
-		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name, OwnerReferences: []metav1.OwnerReference{
-			{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs, UID: types.UID("uid-" + rs), Controller: &controller},
-		}}}
-	}
-	client := fake.NewClientset(
-		replicaSet("web-3", "3", 1, 1), podOf("web-3-a", "web-3"),
-		replicaSet("web-2", "2", 0, 0),
-		// Scaled down with a Pod still shutting down, on a cluster that
-		// doesn't report terminatingReplicas.
-		replicaSet("web-1", "1", 0, 0), podOf("web-1-a", "web-1"),
-	)
-	typed, err := k8score.NewResourceCache(k8score.CacheConfig{Client: client, ResourceTypes: map[string]bool{k8score.Pods: true, k8score.ReplicaSets: true}})
+// historyFixture is a Deployment at revision 3 with ReplicaSets and Pods in a
+// real typed cache, and a source reading it with discovery serving them.
+func historyFixture(t *testing.T, objects ...runtime.Object) (*fake.Clientset, *k8score.ResourceCache, ownership.Source, *appsv1.Deployment) {
+	t.Helper()
+	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "web", UID: "uid-web", Annotations: map[string]string{historyRevision: "3"}}}
+	client := fake.NewClientset(append([]runtime.Object{deployment}, objects...)...)
+	typed, err := k8score.NewResourceCache(k8score.CacheConfig{Client: client, ResourceTypes: map[string]bool{k8score.Pods: true, k8score.ReplicaSets: true, k8score.Deployments: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(typed.Stop)
-	session, err := cachesource.New(func() cachesource.Caches { return cachesource.Caches{Typed: typed} }).Begin()
+	discovery, err := k8score.NewResourceDiscovery(fake.NewClientset().Discovery())
 	if err != nil {
 		t.Fatal(err)
 	}
-	child := func(name string) topology.ResourceRef {
-		return topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "shop", Name: name}
+	for _, r := range []k8score.APIResource{
+		{Name: "pods", Kind: "Pod", Version: "v1"},
+		{Name: "deployments", Kind: "Deployment", Group: "apps", Version: "v1"},
+		{Name: "replicasets", Kind: "ReplicaSet", Group: "apps", Version: "v1"},
+	} {
+		r.Namespaced, r.Verbs = true, metav1.Verbs{"delete", "get", "list", "watch"}
+		discovery.AddAPIResource(r)
 	}
-	deployment := &metav1.ObjectMeta{Namespace: "shop", Name: "web", Annotations: map[string]string{revision: "3"}}
-	kind := resourceid.GroupKind{Group: "apps", Kind: "Deployment"}
+	source := cachesource.New(func() cachesource.Caches { return cachesource.Caches{Typed: typed, Discovery: discovery} })
+	return client, typed, source, deployment
+}
 
-	rel := &topology.Relationships{Children: []topology.ResourceRef{child("web-3"), child("web-2"), child("web-1"), child("web-0")}}
-	splitHistory(kind, deployment)(rel, session)
-	if want := []topology.ResourceRef{child("web-3"), child("web-1"), child("web-0")}; !slices.Equal(rel.Children, want) {
-		t.Errorf("children %v, want %v: the live revision, one still holding a Pod and one the cache lacks", rel.Children, want)
+const historyRevision = "deployment.kubernetes.io/revision"
+
+func historyReplicaSet(name, revision string, desired, running int32) *appsv1.ReplicaSet {
+	controller := true
+	return &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name, UID: types.UID("uid-" + name), Annotations: map[string]string{historyRevision: revision},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: "web", UID: "uid-web", Controller: &controller}}},
+		Spec:   appsv1.ReplicaSetSpec{Replicas: &desired},
+		Status: appsv1.ReplicaSetStatus{Replicas: running},
 	}
-	if want := []topology.ResourceRef{child("web-2")}; !slices.Equal(rel.InactiveChildren, want) {
+}
+
+func historyPod(name, replicaSet string) *corev1.Pod {
+	controller := true
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: name, UID: types.UID("uid-" + name), OwnerReferences: []metav1.OwnerReference{
+		{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: replicaSet, UID: types.UID("uid-" + replicaSet), Controller: &controller},
+	}}}
+}
+
+func historyChild(name string) topology.ResourceRef {
+	return topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "shop", Name: name}
+}
+
+// A Deployment's history moves out of Children only for ReplicaSets the cache
+// holds with no Pod naming them, read through the session's own cache.
+func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
+	_, _, source, deployment := historyFixture(t,
+		historyReplicaSet("web-3", "3", 1, 1), historyPod("web-3-a", "web-3"),
+		historyReplicaSet("web-2", "2", 0, 0),
+		// Scaled down with a Pod still shutting down, on a cluster that
+		// doesn't report terminatingReplicas.
+		historyReplicaSet("web-1", "1", 0, 0), historyPod("web-1-a", "web-1"),
+	)
+	subject := resourceid.Ref{Group: "apps", Kind: "Deployment", Namespace: "shop", Name: "web"}
+	rel := &topology.Relationships{}
+	answerOwnership(source, topology.ApplyOwnership, splitHistory(subject, deployment), rel, ownership.Observe(subject, "apps/v1", deployment), func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() })
+	if want := []topology.ResourceRef{historyChild("web-1"), historyChild("web-3")}; !slices.Equal(rel.Children, want) {
+		t.Errorf("children %v, want %v: the live revision and one still holding a Pod", rel.Children, want)
+	}
+	if want := []topology.ResourceRef{historyChild("web-2")}; !slices.Equal(rel.InactiveChildren, want) {
 		t.Errorf("inactive children %v, want %v", rel.InactiveChildren, want)
 	}
 
@@ -161,9 +185,54 @@ func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rel = &topology.Relationships{Children: []topology.ResourceRef{child("web-2")}}
-	splitHistory(kind, deployment)(rel, scripted)
+	rel = &topology.Relationships{Children: []topology.ResourceRef{historyChild("web-2")}}
+	splitHistory(subject, deployment)(rel, ownership.NewView(scripted, ownership.Unrestricted()), scripted)
 	if len(rel.InactiveChildren) != 0 {
 		t.Errorf("a session over other caches moved %v; only the typed cache it reads can say", rel.InactiveChildren)
+	}
+}
+
+// The view captured a ReplicaSet as the Deployment's child; one replaced at
+// its name before the split, idle and at an older revision, must not stand in
+// for it, whether the captured one runs a Pod or is the current revision
+// scaled to zero.
+func TestSplitHistoryJudgesTheReplicaSetTheViewCaptured(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		captured *appsv1.ReplicaSet
+		pods     []runtime.Object
+	}{
+		{"running a Pod", historyReplicaSet("web-3", "3", 1, 1), []runtime.Object{historyPod("web-3-a", "web-3")}},
+		{"the current revision scaled to zero", historyReplicaSet("web-3", "3", 0, 0), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, typed, source, deployment := historyFixture(t, append([]runtime.Object{tc.captured}, tc.pods...)...)
+			subject := resourceid.Ref{Group: "apps", Kind: "Deployment", Namespace: "shop", Name: "web"}
+			replaceAfterAnswering := func(rel *topology.Relationships, v *ownership.View, fetched ownership.Observation) {
+				topology.ApplyOwnership(rel, v, fetched)
+				replacement := historyReplicaSet("web-3", "1", 0, 0)
+				replacement.UID, replacement.OwnerReferences = "uid-replacement", nil
+				ctx := context.Background()
+				if err := client.AppsV1().ReplicaSets("shop").Delete(ctx, "web-3", metav1.DeleteOptions{}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := client.AppsV1().ReplicaSets("shop").Create(ctx, replacement, metav1.CreateOptions{}); err != nil {
+					t.Fatal(err)
+				}
+				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+					if obj, found, ok := typed.ReadableObject(k8score.ReplicaSets, "shop", "web-3"); ok && found && obj.(*appsv1.ReplicaSet).UID == replacement.UID {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the replacement never reached the cache")
+					}
+				}
+			}
+			rel := &topology.Relationships{}
+			answerOwnership(source, replaceAfterAnswering, splitHistory(subject, deployment), rel, ownership.Observe(subject, "apps/v1", deployment), func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() })
+			if len(rel.InactiveChildren) != 0 || !slices.Equal(rel.Children, []topology.ResourceRef{historyChild("web-3")}) {
+				t.Fatalf("children %v, inactive %v: the split judged the replacement, not the ReplicaSet the view captured", rel.Children, rel.InactiveChildren)
+			}
+		})
 	}
 }
