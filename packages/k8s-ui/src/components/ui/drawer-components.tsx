@@ -843,6 +843,7 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
     ownerMissing ||
     several ||
     childrenCoverage?.text ||
+    (relationships.inactiveChildren && relationships.inactiveChildren.length > 0) ||
     alsoOwnedBy.length > 0 ||
     (relationships.managers && relationships.managers.length > 0) ||
     (relationships.manages && relationships.manages.length > 0) ||
@@ -899,8 +900,14 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
         {relationships.node && (
           <RelationshipGroup label="Node" refs={[relationships.node]} onNavigate={onNavigate} />
         )}
-        {((relationships.children && relationships.children.length > 0) || childrenCoverage?.text) && (
-          <RelationshipGroup label="Children" refs={dedupeResourceRefs(relationships.children ?? [])} onNavigate={onNavigate} note={childrenCoverage} />
+        {((relationships.children && relationships.children.length > 0) || childrenCoverage?.text || (relationships.inactiveChildren && relationships.inactiveChildren.length > 0)) && (
+          <RelationshipGroup
+            label="Children"
+            refs={dedupeResourceRefs(relationships.children ?? [])}
+            onNavigate={onNavigate}
+            note={childrenCoverage}
+            more={inactiveChildren(relationships.inactiveChildren)}
+          />
         )}
         {((relationships.manages && relationships.manages.length > 0) || managesNote) && (
           <RelationshipGroup label="Manages" refs={dedupeResourceRefs(relationships.manages ?? [])} onNavigate={onNavigate} note={managesNote} />
@@ -1106,13 +1113,36 @@ interface RelationshipGroupProps {
   refs: ResourceRef[]
   onNavigate?: (ref: ResourceRef) => void
   note?: RelationshipNote
+  /** Refs shown only on request, such as a Deployment's old ReplicaSets. */
+  more?: MoreRefs
+}
+
+interface MoreRefs {
+  refs: ResourceRef[]
+  /** What the refs are, as "older ReplicaSets" reads after a count. */
+  label: string
+  /** Why they're kept apart, shown on hovering the toggle. */
+  hint: string
+}
+
+// inactiveChildren are the ReplicaSets the server keeps out of Children because
+// they only hold rollback history: listed there, ten of them would bury the
+// ones running Pods.
+function inactiveChildren(refs: ResourceRef[] | undefined): MoreRefs | undefined {
+  if (!refs || refs.length === 0) return undefined
+  const unique = dedupeResourceRefs(refs)
+  return {
+    refs: unique,
+    label: unique.length === 1 ? 'older ReplicaSet' : 'older ReplicaSets',
+    hint: 'Earlier revisions kept for rollback. They run no Pods.',
+  }
 }
 
 const RELATIONSHIP_TRUNCATE_LIMIT = 10
 
-export function RelationshipGroup({ label, refs, onNavigate, note }: RelationshipGroupProps) {
+export function RelationshipGroup({ label, refs, onNavigate, note, more }: RelationshipGroupProps) {
   const [showAll, setShowAll] = useState(false)
-  if ((!refs || refs.length === 0) && !note) return null
+  if ((!refs || refs.length === 0) && !note && !more) return null
   const truncated = !showAll && refs.length > RELATIONSHIP_TRUNCATE_LIMIT
   const visibleRefs = truncated ? refs.slice(0, RELATIONSHIP_TRUNCATE_LIMIT) : refs
 
@@ -1139,7 +1169,33 @@ export function RelationshipGroup({ label, refs, onNavigate, note }: Relationshi
           </button>
         )}
       </div>
+      {more && <MoreRefsToggle more={more} onNavigate={onNavigate} />}
       {note?.text && <div className="mt-1 text-xs text-theme-text-tertiary">{note.text}</div>}
+    </div>
+  )
+}
+
+function MoreRefsToggle({ more, onNavigate }: { more: MoreRefs; onNavigate?: (ref: ResourceRef) => void }) {
+  const [open, setOpen] = useState(false)
+  const { panelId, buttonProps } = useDisclosure(open)
+  return (
+    <div className="mt-1">
+      <button
+        {...buttonProps}
+        onClick={() => setOpen(!open)}
+        title={more.hint}
+        className="flex items-center gap-1 text-xs text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
+      >
+        <CollapseChevron open={open} className="w-3 h-3" />
+        {open ? `Hide ${more.label}` : `Show ${more.refs.length} ${more.label}`}
+      </button>
+      <Collapse open={open} id={panelId} mountLazily>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {more.refs.map((resourceRef, i) => (
+            <ResourceRefBadge key={`${resourceRef.kind}-${resourceRef.namespace}-${resourceRef.name}-${i}`} resourceRef={resourceRef} onClick={onNavigate} />
+          ))}
+        </div>
+      </Collapse>
     </div>
   )
 }

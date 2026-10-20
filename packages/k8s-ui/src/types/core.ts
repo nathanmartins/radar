@@ -655,6 +655,9 @@ export interface Relationships {
   deployment?: ResourceRef   // Grandparent Deployment (for Pods owned by ReplicaSets)
   managedBy?: ResourceRef[]  // Topmost meaningful manager(s): GitOps controller (ArgoCD Application / Flux Kustomization / Flux HelmRelease), Helm release, or the topmost K8s owner. Synthesized server-side; replaces client-side detectGitOpsOwner.
   children?: ResourceRef[]   // Objects whose owner references name this one
+  // Children kept apart because they only keep history: ReplicaSets that run
+  // no Pods and aren't their owner's current revision.
+  inactiveChildren?: ResourceRef[]
   // Management without an owner reference: GitOps member lists, class
   // bindings, spec and status references. Never ownership or garbage collection.
   managers?: ResourceRef[]

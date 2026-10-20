@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"slices"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+
 	"github.com/skyhook-io/radar/internal/auth"
 	"github.com/skyhook-io/radar/internal/k8s"
 	"github.com/skyhook-io/radar/pkg/ownership"
@@ -201,5 +204,17 @@ func (s *Server) relationshipsFor(r *http.Request, kind, namespace, name string,
 		rel = &topology.Relationships{}
 	}
 	k8s.AnswerOwnership(rel, fetched, func(c *ownership.Catalog) ownership.Access { return s.ownershipAccess(r, c) })
+	owner, _ := apimeta.Accessor(resource)
+	topology.SplitInactiveReplicaSets(rel, owner, cachedReplicaSet)
 	return rel
+}
+
+// cachedReplicaSet reads a ReplicaSet from the typed cache.
+func cachedReplicaSet(namespace, name string) (*appsv1.ReplicaSet, bool) {
+	cache := k8s.GetResourceCache()
+	if cache == nil || cache.ReplicaSets() == nil {
+		return nil, false
+	}
+	rs, err := cache.ReplicaSets().ReplicaSets(namespace).Get(name)
+	return rs, err == nil
 }

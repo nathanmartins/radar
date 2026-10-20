@@ -474,6 +474,10 @@ type Relationships struct {
 	Owners     []ResourceRef `json:"owners,omitempty"`
 	Deployment *ResourceRef  `json:"deployment,omitempty"` // Grandparent Deployment (for Pods owned by ReplicaSets)
 	Children   []ResourceRef `json:"children,omitempty"`
+	// InactiveChildren are Children kept apart because they only keep
+	// history: ReplicaSets that run no Pods and aren't their owner's current
+	// revision. See SplitInactiveReplicaSets.
+	InactiveChildren []ResourceRef `json:"inactiveChildren,omitempty"`
 	// Managers and Manages are management without an owner reference: GitOps
 	// member lists, class bindings, spec and status references. They never
 	// mean garbage collection. Set only with Ownership.
