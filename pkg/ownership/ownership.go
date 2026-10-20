@@ -61,8 +61,9 @@ var (
 	// version of a resource it read is watched now that wasn't when the
 	// session chose which versions to read, and may hold a later update.
 	ErrStoreReplaced = errors.New("ownership: a store was replaced during the read")
-	// ErrObjectsChanged: an object a View first read after searching an
-	// owner's dependents names that owner although the search didn't find
-	// it, so the View's answers disagree.
+	// ErrObjectsChanged: the View's answers disagree, because an object it
+	// first read after searching an owner's dependents names that owner
+	// although the search didn't find it, a seed replaced a read an answer
+	// used, or a manager changed between the View's reads of it.
 	ErrObjectsChanged = errors.New("ownership: an object changed between the view's reads")
 )

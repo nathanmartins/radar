@@ -61,12 +61,10 @@ func NewView(s Session, access Access) *View {
 	}
 }
 
-// Catalog is the served API the view's session reads against.
-func (v *View) Catalog() *Catalog { return v.session.Catalog() }
-
 // Validate reports whether every store the view's answers came from is still
 // the one serving them (see Session.Validate), and returns ErrObjectsChanged
-// if an object the view read contradicts a search it made.
+// if an object the view read contradicts a search it made, a seed replaced a
+// read an answer used, or a manager changed between its two reads.
 func (v *View) Validate() error {
 	if err := v.session.Validate(); err != nil {
 		return err
@@ -234,8 +232,10 @@ type ChildrenAnswer struct {
 	Subject Subject
 	// Children are ordered by group, kind, namespace and name.
 	Children []Child
-	// Gaps are the parts of the search the source couldn't read; see
-	// CandidateRead.Gaps.
+	// Gaps are the parts of the search the source couldn't read (see
+	// CandidateRead.Gaps), objects the search found that the view couldn't
+	// read, and references to the subject's UID that may resolve to it but
+	// couldn't be resolved, such as one at a version discovery doesn't list.
 	Gaps []Gap
 	// Truncated: the search stopped at its limit, so there may be more.
 	Truncated bool
@@ -295,7 +295,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			case res.State == OwnerFound && res.Ref == ref:
 				names = true
 				child.Controller = child.Controller || isController(r)
-			case res.State == OwnerUnknown:
+			case res.State == OwnerUnknown && mayResolveTo(res, r.Name, ref):
 				unknown = append(unknown, res.Gap)
 			}
 		}
@@ -314,17 +314,32 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			a.Gaps = append(a.Gaps, g)
 		}
 	}
-	// The caller may read these: the view read them for it.
-	a.Gaps = append(a.Gaps, unread...)
 	if !searched {
 		v.searched[owner.UID] = searchScope{domain: domain, gaps: slices.Clone(a.Gaps)}
 	}
-	// An unresolved reference doesn't leave a kind unsearched, so it excuses
-	// no object the search should have found.
+	// Objects the view couldn't read (the caller may read them: the view read
+	// them for it) and references it couldn't resolve leave no kind or place
+	// unsearched, so they excuse no object the search should have found.
+	a.Gaps = append(a.Gaps, unread...)
 	a.Gaps = append(a.Gaps, unresolved...)
 	slices.SortFunc(a.Gaps, compareGaps)
 	a.Gaps = slices.Compact(a.Gaps)
 	return a
+}
+
+// mayResolveTo reports whether a reference naming ref's UID, whose resolution
+// is unknown, may still resolve to ref: it names ref's name, and a kind Radar
+// resolved to ref's or couldn't resolve within ref's group. UIDs are unique,
+// so a reference to other coordinates never resolves to the object holding
+// its UID, however the read of those coordinates goes.
+func mayResolveTo(res OwnerResolution, name string, ref resourceid.Ref) bool {
+	switch {
+	case name != ref.Name:
+		return false
+	case res.Ref != (resourceid.Ref{}):
+		return res.Ref.GroupKind() == ref.GroupKind()
+	}
+	return res.Gap.Kind.Group == ref.Group
 }
 
 // candidates are the objects the caller may read that name uid in domain,
@@ -413,9 +428,10 @@ type RootAnswer struct {
 	Root resourceid.Ref
 	// Chain is every object the walk reached, from the subject to Root.
 	Chain []resourceid.Ref
-	// Stop is the controller reference the walk couldn't follow, or nil when
-	// Root has no controller reference. A Node controller ends the walk
-	// (Node), and is Stop only when it isn't found.
+	// Stop is the controller reference the walk couldn't follow. It is nil
+	// when Root has no controller reference, and when the walk ends in a
+	// Cycle or is Truncated. A Node controller ends the walk (Node), outside
+	// Chain, and is Stop only when it isn't found.
 	Stop *OwnerResolution
 	Node bool
 	// Cycle: the references loop. Root is the smallest object in the loop
@@ -487,7 +503,8 @@ type MembersAnswer struct {
 	// Missing counts the recorded objects Radar has loaded the stores of and
 	// doesn't hold. Withheld counts those the caller may not read, and
 	// Unknown those Radar can't say whether it holds (Gaps say why). The
-	// manager's status, which the caller can read, names them all.
+	// manager's status, which the caller can read, names them all; Events,
+	// which ownership doesn't read, are left out.
 	Missing, Withheld, Unknown int
 	Gaps                       []Gap
 }
@@ -524,6 +541,9 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 		return a
 	}
 	for _, m := range inventory.Members {
+		if IsEvent(m.GroupKind()) {
+			continue
+		}
 		read, may := v.read(m)
 		switch {
 		case may == Denied:
@@ -535,11 +555,9 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 			a.Members = append(a.Members, read.Object)
 		case read.State == Absent:
 			a.Missing++
-		default:
+		case read.State == Unavailable:
 			a.Unknown++
-			if read.State == Unavailable {
-				a.Gaps = append(a.Gaps, read.Gap)
-			}
+			a.Gaps = append(a.Gaps, read.Gap)
 		}
 	}
 	slices.SortFunc(a.Gaps, compareGaps)

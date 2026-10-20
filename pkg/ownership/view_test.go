@@ -166,6 +166,9 @@ func TestViewSeedsAnObjectTheCachesDoNotHold(t *testing.T) {
 	if got := seeded.Members(app); got.Membership != ownership.MembersUnreadable || len(got.Gaps) != 1 || got.Gaps[0].Reason != readreason.RadarKindNotCollected {
 		t.Fatalf("members of an uncollected manager = %v gaps %+v; want unreadable, as Radar doesn't collect it", got.Membership, got.Gaps)
 	}
+	if err := seeded.Validate(); err != nil {
+		t.Fatalf("Validate = %v; a manager Radar doesn't collect changed nothing", err)
+	}
 
 	// Seeding grants no access.
 	denied := view(t, w, access{denied: []resourceid.GroupKind{configMaps}})
@@ -294,7 +297,11 @@ func TestViewControllerRootTerminals(t *testing.T) {
 	if got := v.ControllerRoot(mirror.Ref); got.Root != mirror.Ref || !got.Node || got.Stop == nil || got.Stop.State != ownership.OwnerGone {
 		t.Errorf("a mirror Pod of a deleted Node = %+v; want itself, ended by the Node, which is gone", got)
 	}
-	for _, start := range []ownershiptest.Object{loopA, loopB, tail} {
+	// A feeder that sorts before the loop's members still gets the loop's
+	// root: the smallest member of the loop itself, not of the walk.
+	first := b.Add("example.io", "Widget", "x", "0", refTo("b"))
+	v = view(t, b.World(), ownership.Unrestricted())
+	for _, start := range []ownershiptest.Object{loopA, loopB, tail, first} {
 		if got := v.ControllerRoot(start.Ref); got.Root != loopA.Ref || !got.Cycle {
 			t.Errorf("from %v = %+v; want the loop's smallest member, a, from any start", start.Ref, got)
 		}
@@ -351,6 +358,64 @@ func TestViewMembers(t *testing.T) {
 	for name, state := range map[string]ownership.MembershipState{"elsewhere": ownership.MembersRemote, "new": ownership.MembersUnreadable, "empty-list": ownership.MembersRecorded} {
 		if got := view(t, w, ownership.Unrestricted()).Members(app(name)); got.Membership != state || len(got.Members) != 0 || got.Missing+got.Withheld+got.Unknown != 0 {
 			t.Errorf("%s = %+v; want %v and no members", name, got, state)
+		}
+	}
+}
+
+// A reference carrying an owner's UID under other coordinates never resolves
+// to the owner, since UIDs are unique: however the read of those coordinates
+// goes, the object isn't a child and leaves the answer complete. A reference
+// Radar can't map to a kind may still be the owner's, and stays a gap.
+func TestViewChildrenIgnoreReferencesThatCantNameTheOwner(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
+	b.Add("", "Pod", "alpha", "web-a", rs.OwnerRef(true))
+	odd := rs.OwnerRef(false)
+	odd.APIVersion, odd.Kind, odd.Name = "v1", "Node", "x"
+	b.Add("", "Pod", "alpha", "odd", odd)
+	w := b.World()
+	w.Collection[resourceid.GroupKind{Kind: "Node"}] = ownershiptest.Collection{State: ownershiptest.Loading}
+	if got := view(t, w, ownership.Unrestricted()).Children(rs.Ref, 0); !got.Complete() || len(got.Children) != 1 {
+		t.Fatalf("children %q gaps %+v; a Node reference can't be to the ReplicaSet", childRefs(got), got.Gaps)
+	}
+
+	unmapped := rs.OwnerRef(false)
+	unmapped.APIVersion = "apps/v9"
+	b.Add("", "Pod", "alpha", "unmapped", unmapped)
+	got := view(t, b.World(), ownership.Unrestricted()).Children(rs.Ref, 0)
+	if want := (ownership.Gap{Kind: rs.Ref.GroupKind(), Reason: readreason.KindUnknown}); !slices.Contains(got.Gaps, want) {
+		t.Fatalf("gaps %+v; want %+v for a reference to web at a version discovery doesn't list", got.Gaps, want)
+	}
+}
+
+// An object naming its owner twice is one child.
+func TestViewChildrenListAnObjectNamingItsOwnerTwiceOnce(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
+	b.Add("", "Pod", "alpha", "dup", rs.OwnerRef(true), rs.OwnerRef(false))
+	v := view(t, b.World(), ownership.Unrestricted())
+	v.Owner(at("", "Pod", "alpha", "dup"))
+	if got := v.Children(rs.Ref, 0); len(got.Children) != 1 || !got.Children[0].Controller {
+		t.Fatalf("children = %q; want dup once, as a controller", childRefs(got))
+	}
+}
+
+// A manager may list an Event; ownership doesn't read Events, so the answer
+// leaves it out rather than counting a member it can't say anything about.
+func TestViewMembersLeaveOutEvents(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	cm := b.Add("", "ConfigMap", "alpha", "cm")
+	app := b.Manager(ownership.ArgoApplication, "argocd", "app", ownership.MembersRecorded, "alpha", at("", "Event", "alpha", "e"), cm.Ref)
+	got := view(t, b.World(), ownership.Unrestricted()).Members(app.Ref)
+	if len(got.Members) != 1 || got.Missing+got.Withheld+got.Unknown != 0 || len(got.Gaps) != 0 {
+		t.Fatalf("members %d missing %d withheld %d unknown %d gaps %+v; want the ConfigMap alone", len(got.Members), got.Missing, got.Withheld, got.Unknown, got.Gaps)
+	}
+}
+
+func TestDecisionNames(t *testing.T) {
+	for d, want := range map[ownership.Decision]string{ownership.Denied: "denied", ownership.Allowed: "allowed", ownership.Undecided: "undecided", ownership.Decision(99): "denied"} {
+		if got := d.String(); got != want {
+			t.Errorf("Decision(%d) = %q, want %q", d, got, want)
 		}
 	}
 }
