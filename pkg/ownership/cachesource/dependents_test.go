@@ -298,8 +298,6 @@ func TestOwnerCandidatesDoNoIO(t *testing.T) {
 	}
 }
 
-// The search goes through the owner index, so its cost follows the owner's
-// dependents, not how many other objects Radar holds.
 // The search reads the owner index, not the kind: its cost doesn't grow with
 // objects that name other owners. Counting allocations can't tell, since
 // listing the whole kind is one allocation however many it holds; the bytes
