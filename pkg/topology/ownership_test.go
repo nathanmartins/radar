@@ -515,7 +515,7 @@ func (namespacesOnly) AllKindsIn(string) bool         { return false }
 
 // A cluster-scoped owner's children are searched in each of the caller's
 // namespaces; a kind Radar doesn't collect is listed once, not once per
-// namespace, while a namespaced owner's gaps keep their namespace.
+// namespace, and so it is for a namespaced owner.
 func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
 	b := ownershiptest.NewBuilder()
 	node := b.Add("", "Node", "", "n1")
@@ -541,8 +541,8 @@ func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
 	}
 	rel = &Relationships{}
 	ApplyOwnership(rel, ownershipView(t, w, namespaces), ownership.Observation{Ref: rs.Ref, APIVersion: rs.APIVersion, UID: rs.UID})
-	if !slices.Contains(rel.Ownership.Children.NotChecked, OwnershipGap{Group: widgets.Group, Kind: widgets.Kind, Namespace: "alpha", Reason: string(readreason.RadarKindNotCollected)}) {
-		t.Fatalf("a namespaced owner's gaps = %+v; want Widget in alpha", rel.Ownership.Children.NotChecked)
+	if !slices.Contains(rel.Ownership.Children.NotChecked, OwnershipGap{Group: widgets.Group, Kind: widgets.Kind, Reason: string(readreason.RadarKindNotCollected)}) {
+		t.Fatalf("a namespaced owner's gaps = %+v; want Widget, wherever the search looked", rel.Ownership.Children.NotChecked)
 	}
 }
 

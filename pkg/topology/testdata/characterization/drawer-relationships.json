@@ -12,37 +12,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -62,37 +56,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -112,37 +100,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -165,37 +147,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -218,37 +194,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -275,37 +245,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -325,37 +289,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -378,37 +336,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -434,37 +386,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -491,37 +437,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -570,37 +510,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -633,37 +567,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -690,37 +618,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -747,37 +669,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -804,37 +720,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -862,37 +772,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -915,37 +819,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -968,37 +866,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1023,37 +915,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "argocd",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1076,37 +962,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1126,37 +1006,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1176,37 +1050,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1226,37 +1094,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1283,37 +1145,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1333,37 +1189,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1384,37 +1234,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1438,37 +1282,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1488,37 +1326,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1542,37 +1374,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1599,37 +1425,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1656,37 +1476,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1709,37 +1523,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1759,37 +1567,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1811,37 +1613,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1865,37 +1661,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1919,37 +1709,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -1976,37 +1760,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2033,37 +1811,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2087,37 +1859,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "capi",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2140,37 +1906,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2275,37 +2035,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2326,37 +2080,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2458,37 +2206,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2511,37 +2253,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2577,37 +2313,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2798,37 +2528,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2931,37 +2655,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -2994,37 +2712,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3054,37 +2766,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3107,37 +2813,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3160,37 +2860,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3207,37 +2901,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3264,37 +2952,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3321,37 +3003,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3375,37 +3051,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3429,37 +3099,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3476,37 +3140,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "flux-system",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3536,37 +3194,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3592,37 +3244,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3829,37 +3475,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -3968,37 +3608,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4023,37 +3657,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "infra",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4078,37 +3706,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4134,37 +3756,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4187,37 +3803,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4240,37 +3850,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4293,37 +3897,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4346,37 +3944,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4399,37 +3991,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4452,37 +4038,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4505,37 +4085,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4560,37 +4134,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4615,37 +4183,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4671,37 +4233,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4732,37 +4288,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4792,37 +4342,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4853,37 +4397,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4908,37 +4446,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -4963,37 +4495,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -5014,37 +4540,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -5069,37 +4589,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -5128,37 +4642,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "team",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -5185,37 +4693,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]
@@ -5241,37 +4743,31 @@
           "notChecked": [
             {
               "kind": "Endpoints",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "apps",
               "kind": "ControllerRevision",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "coordination.k8s.io",
               "kind": "Lease",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "discovery.k8s.io",
               "kind": "EndpointSlice",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaim",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             },
             {
               "group": "resource.k8s.io",
               "kind": "ResourceClaimTemplate",
-              "namespace": "shop",
               "reason": "radar_kind_not_collected"
             }
           ]

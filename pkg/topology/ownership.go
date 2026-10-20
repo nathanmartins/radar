@@ -192,10 +192,10 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 }
 
 // notChecked lists the kinds a search for children couldn't read, once per
-// kind and reason. A search across a caller's namespaces leaves a kind Radar
-// doesn't collect unread in each of them, which would otherwise list the kind
-// once per namespace: a user with a hundred namespaces opening a Node would
-// get every uncollected kind a hundred times.
+// kind and reason. A search across a caller's namespaces reports a kind still
+// loading in each of them, which would otherwise list the kind once per
+// namespace: a user with a hundred namespaces opening a Node would get it a
+// hundred times.
 func notChecked(gaps []ownership.Gap) []OwnershipGap {
 	type key struct{ group, kind, reason string }
 	namespaces := map[key][]string{}
