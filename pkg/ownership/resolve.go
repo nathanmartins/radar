@@ -49,8 +49,9 @@ func (s OwnerState) String() string {
 // OwnerResolution is one owner reference resolved.
 type OwnerResolution struct {
 	State OwnerState
-	// Ref is where the reference points; it is set unless the reference is
-	// unresolvable.
+	// Ref is where the reference points. It is unset when the reference is
+	// unresolvable, and when Radar can't map its kind or version to a scope
+	// (OwnerUnknown with a gap saying why).
 	Ref resourceid.Ref
 	// Owner is the object at Ref, when Found or Replaced.
 	Owner Observation

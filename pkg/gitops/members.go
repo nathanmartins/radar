@@ -115,13 +115,17 @@ func fluxMembers(obj *unstructured.Unstructured, collect bool) (list MemberList,
 		if !isString {
 			return MemberList{}, false
 		}
+		if !collect {
+			if _, _, _, _, parsed := fluxInventoryParts(id); !parsed {
+				return MemberList{}, false
+			}
+			continue
+		}
 		group, kind, namespace, name, parsed := ParseFluxInventoryID(id)
 		if !parsed {
 			return MemberList{}, false
 		}
-		if collect {
-			list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
-		}
+		list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
 	}
 	return list, true
 }

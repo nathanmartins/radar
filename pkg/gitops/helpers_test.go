@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"fmt"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,6 +44,22 @@ func TestParseFluxInventoryID(t *testing.T) {
 func TestParseFluxInventoryIDAllocatesNothing(t *testing.T) {
 	if n := testing.AllocsPerRun(100, func() { ParseFluxInventoryID("flux-system_my_weird_name_apps_Deployment") }); n != 0 {
 		t.Fatalf("%v allocations per entry", n)
+	}
+}
+
+// Telling whether Radar can read an inventory decodes no names, so an RBAC
+// name Flux writes with a colon costs nothing either.
+func TestFluxMembersReadableAllocatesNothing(t *testing.T) {
+	entries := make([]any, 1000)
+	for i := range entries {
+		entries[i] = map[string]any{"id": fmt.Sprintf("kube-system_metrics-server__system__auth-delegator-%d_rbac.authorization.k8s.io_RoleBinding", i)}
+	}
+	ks := &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"inventory": map[string]any{"entries": entries}}}}
+	if !FluxMembersReadable(ks) {
+		t.Fatal("unreadable")
+	}
+	if n := testing.AllocsPerRun(20, func() { FluxMembersReadable(ks) }); n != 0 {
+		t.Fatalf("%v allocations per check of a 1,000-entry inventory", n)
 	}
 }
 
