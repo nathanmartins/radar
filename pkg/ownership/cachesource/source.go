@@ -41,7 +41,7 @@ func (c Caches) replacedBy(now Caches) bool {
 
 // Source reads from the caches current returns. It calls current when a
 // session begins and again when it validates: what current returns must change
-// only when the host replaces its caches.
+// only when the host publishes a cache it lacked or replaces its caches.
 type Source struct {
 	current func() Caches
 	catalog atomic.Pointer[catalogEntry]
