@@ -213,12 +213,16 @@ func Build(ctx context.Context, obj runtime.Object, opts Options) *ResourceConte
 	// Whether the topology answered, before an ownership answer exists to
 	// carry the rest.
 	fromTopology := rel != nil
+	// answered: the host's ownership answer stands, even one with nothing to
+	// say, as for an Event, whose owner references ownership doesn't follow.
+	answered := false
 	if m, ok := obj.(metav1.Object); ok && opts.Ownership != nil {
 		if rel == nil {
 			rel = &topology.Relationships{}
 		}
 		ref := resourceid.Ref{Group: ident.Group, Kind: ident.Kind, Namespace: ident.Namespace, Name: ident.Name}
 		opts.Ownership(rel, ownership.Observe(ref, obj.GetObjectKind().GroupVersionKind().GroupVersion().String(), m))
+		answered = true
 	}
 
 	// 1. ManagedBy — prefer Relationships.ManagedBy (server-synthesized when
@@ -262,7 +266,7 @@ func Build(ctx context.Context, obj runtime.Object, opts Options) *ResourceConte
 			(rel.Ownership.Unavailable != "" || rel.Ownership.Changed) && ownerFromObject(obj, ident.Namespace) != nil:
 			omitted.add("owner", OmittedUnavailable)
 		}
-	} else if owner := ownerFromObject(obj, ident.Namespace); owner != nil {
+	} else if owner := ownerFromObject(obj, ident.Namespace); owner != nil && !answered {
 		// Without an ownership answer, the object's own controller reference.
 		if checkRef(ctx, opts.AccessChecker, owner) {
 			rc.Owner = owner

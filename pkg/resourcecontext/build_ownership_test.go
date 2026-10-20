@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/skyhook-io/radar/pkg/ownership"
+	"github.com/skyhook-io/radar/pkg/ownership/ownershiptest"
 	"github.com/skyhook-io/radar/pkg/topology"
 )
 
@@ -57,6 +58,26 @@ func TestBuildSaysWhyOwnershipNamedNoOwner(t *testing.T) {
 				t.Fatalf("owner omitted for %q, want %q (omitted %+v)", got, tc.want, rc.Omitted)
 			}
 		})
+	}
+}
+
+// Ownership doesn't follow an Event's owner references, so an Event's context
+// names no owner, rather than the unchecked one its own reference names.
+func TestBuildNamesNoOwnerForAnEvent(t *testing.T) {
+	event := &corev1.Event{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Event"}, ObjectMeta: metav1.ObjectMeta{
+		Namespace: "shop", Name: "e", UID: "uid-event", OwnerReferences: controlledPod().OwnerReferences,
+	}}
+	s, err := ownershiptest.Scan(ownershiptest.Fixture()).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := ownership.NewView(s, ownership.Unrestricted())
+	rc := Build(context.Background(), event, Options{
+		AccessChecker: allowAllChecker{},
+		Ownership:     func(rel *topology.Relationships, fetched ownership.Observation) { topology.ApplyOwner(rel, v, fetched) },
+	})
+	if rc.Owner != nil {
+		t.Fatalf("owner = %+v; ownership names none for an Event", rc.Owner)
 	}
 }
 
