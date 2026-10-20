@@ -11,7 +11,7 @@ import (
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
-// BenchmarkRecordingManagers is one search for an object's recorders among 300
+// BenchmarkRecordingManagers is one search for the managers recording an object among 300
 // Applications of 40 entries each, a few of them unreadable.
 func BenchmarkRecordingManagers(b *testing.B) {
 	w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}}

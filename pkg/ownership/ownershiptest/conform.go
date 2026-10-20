@@ -274,7 +274,7 @@ func describeRecordingManagers(r ownership.RecordingManagersRead) string {
 	for _, m := range r.Managers {
 		refs = append(refs, describeObservation(m))
 	}
-	return fmt.Sprintf("recorders [%s] elsewhere %v unreadable %v unnamed %v gaps %+v", strings.Join(refs, ", "), r.Remote, r.Unreadable, r.TargetUnresolvable, r.Gaps)
+	return fmt.Sprintf("managers [%s] remote %v unreadable %v targetUnresolvable %v gaps %+v", strings.Join(refs, ", "), r.Remote, r.Unreadable, r.TargetUnresolvable, r.Gaps)
 }
 
 func describeMembers(r ownership.MembersRead) string {
