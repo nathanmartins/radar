@@ -253,7 +253,7 @@ type ChildrenAnswer struct {
 	// read, and references to the subject's UID that may resolve to it but
 	// couldn't be resolved, such as one at a version discovery doesn't list.
 	Gaps []Gap
-	// Truncated: the search stopped at its limit, so there may be more.
+	// Truncated: the limit cut Children short, so the caller may read more.
 	Truncated bool
 	// Narrowed: the caller may read only some of the places children could
 	// be, so Children are the ones it may read, and whether there are others
@@ -274,7 +274,8 @@ func (a ChildrenAnswer) Complete() bool {
 // namespace, where Kubernetes resolves their references; a cluster-scoped
 // owner's can be anywhere. A reference with the UID that names other
 // coordinates is not one Kubernetes resolves to ref. limit caps the children
-// returned, 0 for no limit; it counts only children the caller may read.
+// returned, 0 for no limit; it counts only children the caller may read. It
+// caps the answer, not the work: every candidate is read and captured first.
 func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	subject := v.subject(ref)
 	a := ChildrenAnswer{Subject: subject}

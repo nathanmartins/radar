@@ -46,7 +46,7 @@ type DependentCandidatesRead struct {
 	// radar_namespace_not_collected, the namespaces of that kind Radar doesn't
 	// collect.
 	Gaps []Gap
-	// Truncated: the search stopped at its limit, so more may exist.
+	// Truncated: the limit cut Candidates short, so more exist than are listed.
 	Truncated bool
 }
 

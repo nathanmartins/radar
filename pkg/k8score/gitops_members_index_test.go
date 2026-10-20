@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
@@ -98,12 +99,12 @@ func TestGitOpsManagersAreIndexedByMembers(t *testing.T) {
 		if err := d.startWatching(gvr, ""); err != nil {
 			t.Fatal(err)
 		}
-		waitFor(t, gvr.Resource, func() bool { return d.IsClusterWideSynced(gvr) })
+		waitUntil(t, 5*time.Second, gvr.Resource, func() bool { return d.IsClusterWideSynced(gvr) })
 	}
 	if err := d.startWatching(helmReleases, "flux-system"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "flux-system's HelmReleases", func() bool { return d.IsNamespaceSynced(helmReleases, "flux-system") })
+	waitUntil(t, 5*time.Second, "flux-system's HelmReleases", func() bool { return d.IsNamespaceSynced(helmReleases, "flux-system") })
 	ui := MemberKey(MemberMeant, "", "Service", "shop", "ui")
 	for _, tc := range []struct {
 		gvr                  schema.GroupVersionResource
