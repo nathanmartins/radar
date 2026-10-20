@@ -233,7 +233,8 @@ func TestViewChildrenReportWhatTheSearchCouldNotRead(t *testing.T) {
 	w := ownershiptest.Fixture()
 	w.Collection[pods] = ownershiptest.Collection{State: ownershiptest.Loading}
 	got := view(t, w, ownership.Unrestricted()).Children(at("apps", "ReplicaSet", "alpha", "web-1"), 0)
-	want := []ownership.Gap{{Kind: pods, Namespace: "alpha", Reason: readreason.KindSyncPending}}
+	// One store serves every namespace, so its gap names none.
+	want := []ownership.Gap{{Kind: pods, Reason: readreason.KindSyncPending}}
 	if len(got.Children) != 0 || !slices.Equal(got.Gaps, want) || got.Complete() {
 		t.Fatalf("Children while Pods load = %q gaps %+v; want none and %+v", childRefs(got), got.Gaps, want)
 	}
@@ -371,12 +372,15 @@ func TestViewChildrenIgnoreReferencesThatCantNameTheOwner(t *testing.T) {
 	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
 	b.Add("", "Pod", "alpha", "web-a", rs.OwnerRef(true))
 	odd := rs.OwnerRef(false)
-	odd.APIVersion, odd.Kind, odd.Name = "v1", "Node", "x"
+	odd.APIVersion, odd.Kind = "v1", "Node"
 	b.Add("", "Pod", "alpha", "odd", odd)
+	elsewhere := rs.OwnerRef(false)
+	elsewhere.APIVersion, elsewhere.Name = "apps/v9", "other"
+	b.Add("", "Pod", "alpha", "elsewhere", elsewhere)
 	w := b.World()
 	w.Collection[resourceid.GroupKind{Kind: "Node"}] = ownershiptest.Collection{State: ownershiptest.Loading}
 	if got := view(t, w, ownership.Unrestricted()).Children(rs.Ref, 0); !got.Complete() || len(got.Children) != 1 {
-		t.Fatalf("children %q gaps %+v; a Node reference can't be to the ReplicaSet", childRefs(got), got.Gaps)
+		t.Fatalf("children %q gaps %+v; a Node named web, or a reference to another name, can't be to the ReplicaSet", childRefs(got), got.Gaps)
 	}
 
 	unmapped := rs.OwnerRef(false)
@@ -406,9 +410,11 @@ func TestViewMembersLeaveOutEvents(t *testing.T) {
 	b := ownershiptest.NewBuilder()
 	cm := b.Add("", "ConfigMap", "alpha", "cm")
 	app := b.Manager(ownership.ArgoApplication, "argocd", "app", ownership.MembersRecorded, "alpha", at("", "Event", "alpha", "e"), cm.Ref)
-	got := view(t, b.World(), ownership.Unrestricted()).Members(app.Ref)
-	if len(got.Members) != 1 || got.Missing+got.Withheld+got.Unknown != 0 || len(got.Gaps) != 0 {
-		t.Fatalf("members %d missing %d withheld %d unknown %d gaps %+v; want the ConfigMap alone", len(got.Members), got.Missing, got.Withheld, got.Unknown, got.Gaps)
+	for name, a := range map[string]ownership.Access{"everything": ownership.Unrestricted(), "no Events": access{denied: []resourceid.GroupKind{{Kind: "Event"}}}} {
+		got := view(t, b.World(), a).Members(app.Ref)
+		if len(got.Members) != 1 || got.Missing+got.Withheld+got.Unknown != 0 || len(got.Gaps) != 0 {
+			t.Fatalf("%s: members %d missing %d withheld %d unknown %d gaps %+v; want the ConfigMap alone", name, len(got.Members), got.Missing, got.Withheld, got.Unknown, got.Gaps)
+		}
 	}
 }
 
