@@ -578,9 +578,9 @@ func TestApplyOwnershipListsAnUnreadKindOnce(t *testing.T) {
 		t.Fatalf("a namespaced owner's gaps = %+v; want Widget, wherever the search looked", rel.Ownership.Children.NotChecked)
 	}
 
-	// A kind still loading is a gap in each namespace; the wire lists it once,
-	// naming no namespace when it was more than one.
-	w.Collection[resourceid.GroupKind{Kind: "Pod"}] = ownershiptest.Collection{State: ownershiptest.Loading}
+	// A kind loading namespace by namespace is a gap in each; the wire lists it
+	// once, naming no namespace when it was more than one.
+	w.Collection[resourceid.GroupKind{Kind: "Pod"}] = ownershiptest.Collection{State: ownershiptest.Loading, Namespaces: []string{"alpha", "beta"}}
 	rel = &Relationships{}
 	ApplyOwnership(rel, ownershipView(t, w, namespacesOnly{"alpha", "beta"}), ownership.Observation{Ref: node.Ref, APIVersion: node.APIVersion, UID: node.UID})
 	var loading []OwnershipGap
