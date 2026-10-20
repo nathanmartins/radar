@@ -93,7 +93,7 @@ type RecordingManagersRead struct {
 // RecordingManagers kinds recording the object among those whose status this
 // cluster stores. A manager of another kind, or one running elsewhere, such
 // as a hub's Argo CD or a management cluster's Flux, is invisible here: an
-// object with no recorders may still be managed by GitOps.
+// object with no recording managers may still be managed by GitOps.
 func (r RecordingManagersRead) Complete() bool {
 	return len(r.Gaps) == 0 && len(r.Remote) == 0 && len(r.Unreadable) == 0
 }

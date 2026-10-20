@@ -85,7 +85,7 @@ func NewView(s ReadSession, access Access) *View {
 }
 
 // ValidateAnswers reports whether every store the view's answers came from is still
-// the one serving them (see Session.ValidateAnswers), and returns ErrObjectsChanged
+// the one serving them (see ReadSession.ValidateStores), and returns ErrObjectsChanged
 // if an object the view read contradicts a search it made, a seed replaced a
 // read an answer used, or a manager changed between its two reads.
 func (v *View) ValidateAnswers() error {

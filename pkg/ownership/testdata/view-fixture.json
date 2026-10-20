@@ -79,7 +79,7 @@
         "found ReplicaSet.apps alpha/web-1"
       ],
       "owner": "reference 0: found ReplicaSet.apps alpha/web-1",
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "Pod alpha/web-1-b",
@@ -89,7 +89,7 @@
         "found ConfigMap alpha/cfg"
       ],
       "owner": "reference 0: found ReplicaSet.apps alpha/web-1",
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "Pod alpha/wrong-coordinates",
@@ -122,7 +122,7 @@
         "Pod alpha/web-1-a (controller)",
         "Pod alpha/web-1-b (controller)"
       ],
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "ReplicaSet.apps alpha/web-old",
@@ -347,7 +347,7 @@
         "found ReplicaSet.apps alpha/web-1"
       ],
       "owner": "reference 0: found ReplicaSet.apps alpha/web-1",
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "Pod alpha/web-1-b",
@@ -357,7 +357,7 @@
         "found ConfigMap alpha/cfg"
       ],
       "owner": "reference 0: found ReplicaSet.apps alpha/web-1",
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "Pod alpha/wrong-coordinates",
@@ -374,7 +374,7 @@
         "gone ReplicaSet.apps beta/web-1"
       ],
       "owner": "reference 0: gone ReplicaSet.apps beta/web-1",
-      "controllerRoot": "Pod beta/stray, stopped by gone ReplicaSet.apps beta/web-1"
+      "controllerChain": "Pod beta/stray, stopped by gone ReplicaSet.apps beta/web-1"
     },
     {
       "object": "Deployment.apps alpha/web",
@@ -395,7 +395,7 @@
         "Pod alpha/web-1-a (controller)",
         "Pod alpha/web-1-b (controller)"
       ],
-      "controllerRoot": "Deployment.apps alpha/web"
+      "controllerChain": "Deployment.apps alpha/web"
     },
     {
       "object": "ReplicaSet.apps alpha/web-old",

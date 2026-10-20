@@ -95,7 +95,7 @@ func (st settle) recheck(d ownershiptest.Difference, listed map[resourceid.Ref]o
 	case ownershiptest.AskedCandidates:
 		holds = r.candidatesHold(d)
 	case ownershiptest.AskedRecordingManagers:
-		holds = r.recordersHold(d)
+		holds = r.managersHold(d)
 	case ownershiptest.AskedMembers:
 		holds = r.inventoryHolds(d)
 	}
@@ -208,13 +208,13 @@ func lists(o ownershiptest.Object, ref resourceid.Ref) (recorded, elsewhere, unr
 	return slices.Contains(o.Members, ref), false, false
 }
 
-// recordersHold asks for a fresh answer until one holds, at most answers
+// managersHold asks for a fresh answer until one holds, at most answers
 // times. It holds when it has the expected gaps; every manager it names
 // appears once and, in its current copy, says what the answer says of it: it
 // lists the object (as a recorder, matching that copy; elsewhere, as a remote
 // manager), or its list is unreadable; and it owes nothing (see owes).
 // Managers created after the list and never disputed aren't checked.
-func (r *rechecking) recordersHold(d ownershiptest.Difference) bool {
+func (r *rechecking) managersHold(d ownershiptest.Difference) bool {
 	mentions := func(o ownershiptest.Object) bool {
 		recorded, elsewhere, unreadable := lists(o, d.Ref)
 		return recorded || elsewhere || unreadable

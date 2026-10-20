@@ -84,7 +84,7 @@ type goldenAnswer struct {
 	Owner      string   `json:"owner,omitempty"`
 	Children   []string `json:"children,omitempty"`
 	Coverage   []string `json:"childrenCoverage,omitempty"`
-	Root       string   `json:"controllerRoot,omitempty"`
+	Chain      string   `json:"controllerChain,omitempty"`
 	Members    []string `json:"members,omitempty"`
 	Membership string   `json:"membership,omitempty"`
 }
@@ -142,13 +142,13 @@ func answer(v *ownership.View, ref resourceid.Ref) goldenAnswer {
 	end := chain.Chain[len(chain.Chain)-1]
 	switch {
 	case chain.Cycle:
-		a.Root = "cycle after " + end.String()
+		a.Chain = "cycle after " + end.String()
 	case chain.Truncated:
-		a.Root = "truncated at " + end.String()
+		a.Chain = "truncated at " + end.String()
 	case chain.UnfollowedReference != nil:
-		a.Root = fmt.Sprintf("%s, stopped by %s", end, resolutionText(*chain.UnfollowedReference))
+		a.Chain = fmt.Sprintf("%s, stopped by %s", end, resolutionText(*chain.UnfollowedReference))
 	case end != ref:
-		a.Root = end.String()
+		a.Chain = end.String()
 	}
 	if ownership.IsRecordingManager(ref.GroupKind()) {
 		m := v.Members(ref)

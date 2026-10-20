@@ -315,7 +315,7 @@ func TestLiveParity(t *testing.T) {
 		}
 		t.Logf("pass %d: GitOps managers: %d recorded, listing %d members; %d unreadable; %d remote",
 			pass, states[ownership.MembersRecorded], members, states[ownership.MembersUnreadable], states[ownership.MembersRemote])
-		t.Logf("pass %d: %d objects; %d questions (%d objects and their recorders, %d UIDs × %d domains, %d inventories) and %d owner references resolved; %d differ: %d confirmed by a change the API server shows, %d caught up with no change shown, %d wrong or not settled",
+		t.Logf("pass %d: %d objects; %d questions (%d objects and their recording managers, %d UIDs × %d domains, %d inventories) and %d owner references resolved; %d differ: %d confirmed by a change the API server shows, %d caught up with no change shown, %d wrong or not settled",
 			pass, len(w.Objects), 2*len(q.Refs)+len(q.UIDs)*len(q.Domains)+len(q.Managers), len(q.Refs), len(q.UIDs), len(q.Domains), len(q.Managers), resolutions,
 			len(diffs)+resolutionDiffs, counts[confirmed], counts[caughtUp], counts[unresolved])
 		for i, question := range caughtUpQuestions {

@@ -158,8 +158,8 @@ func (s *session) RecordingManagers(ref resourceid.Ref) ownership.RecordingManag
 		return ownership.RecordingManagersRead{TargetUnresolvable: true, Gaps: []ownership.Gap{{Kind: ref.GroupKind(), Namespace: ref.Namespace, Reason: reason}}}
 	}
 	q := &search{domain: ownership.Everywhere()}
-	var recorders []candidate
-	var elsewhere, unreadable []resourceid.Ref
+	var managers []candidate
+	var remote, unreadable []resourceid.Ref
 	for _, gk := range ownership.RecordingManagerKinds() {
 		kind, served := s.catalog.Kind(gk)
 		if !served {
@@ -170,23 +170,23 @@ func (s *session) RecordingManagers(ref resourceid.Ref) ownership.RecordingManag
 			continue
 		}
 		m := s.readMembers(kind, keys)
-		recorders = append(recorders, m.recorders...)
-		elsewhere = append(elsewhere, m.elsewhere...)
+		managers = append(managers, m.managers...)
+		remote = append(remote, m.remote...)
 		unreadable = append(unreadable, m.unreadable...)
 		q.gaps = append(q.gaps, m.gaps...)
 	}
 	var r ownership.RecordingManagersRead
-	slices.SortFunc(recorders, func(a, b candidate) int { return compareRefs(a.ref, b.ref) })
-	recorders = slices.CompactFunc(recorders, func(a, b candidate) bool { return a.ref == b.ref })
-	for _, c := range recorders {
+	slices.SortFunc(managers, func(a, b candidate) int { return compareRefs(a.ref, b.ref) })
+	managers = slices.CompactFunc(managers, func(a, b candidate) bool { return a.ref == b.ref })
+	for _, c := range managers {
 		if read := observe(c.ref, c.apiVersion, c.obj); read.State == ownership.Present {
 			r.Managers = append(r.Managers, read.Object)
 		} else {
 			q.gaps = append(q.gaps, read.Gap)
 		}
 	}
-	slices.SortFunc(elsewhere, compareRefs)
-	r.Remote = slices.Compact(elsewhere)
+	slices.SortFunc(remote, compareRefs)
+	r.Remote = slices.Compact(remote)
 	slices.SortFunc(unreadable, compareRefs)
 	r.Unreadable = slices.Compact(unreadable)
 	slices.SortFunc(q.gaps, compareGaps)
@@ -196,9 +196,9 @@ func (s *session) RecordingManagers(ref resourceid.Ref) ownership.RecordingManag
 
 // membersRead is what one manager kind's index reads found.
 type membersRead struct {
-	recorders             []candidate
-	elsewhere, unreadable []resourceid.Ref
-	gaps                  []ownership.Gap
+	managers           []candidate
+	remote, unreadable []resourceid.Ref
+	gaps               []ownership.Gap
 }
 
 // readMembers reads the managers of kind filed under the unreadable key or any
@@ -217,9 +217,9 @@ func (s *session) readMembers(kind ownership.CatalogKind, keys []string) members
 		case ownership.MembersUnreadable:
 			m.unreadable = append(m.unreadable, manager)
 		case ownership.MembersRemote:
-			m.elsewhere = append(m.elsewhere, manager)
+			m.remote = append(m.remote, manager)
 		default:
-			m.recorders = append(m.recorders, candidate{ref: manager, apiVersion: gvr.GroupVersion().String(), obj: u})
+			m.managers = append(m.managers, candidate{ref: manager, apiVersion: gvr.GroupVersion().String(), obj: u})
 		}
 	})
 	if s.recordingManagersRead != nil {
