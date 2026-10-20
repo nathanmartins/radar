@@ -282,13 +282,11 @@ func TestViewControllerRootTerminals(t *testing.T) {
 	yes := true
 	missingNode.Controller = &yes
 	mirror := b.Add("", "Pod", "kube-system", "etcd-gone", missingNode)
-	loopA := ownershiptest.Object{Ref: at("example.io", "Widget", "x", "a")}
-	loopB := ownershiptest.Object{Ref: at("example.io", "Widget", "x", "b")}
 	refTo := func(name string) metav1.OwnerReference {
 		return metav1.OwnerReference{APIVersion: "example.io/v1", Kind: "Widget", Name: name, UID: types.UID("uid-x-" + name), Controller: &yes}
 	}
-	loopA = b.Add("example.io", "Widget", "x", "a", refTo("b"))
-	loopB = b.Add("example.io", "Widget", "x", "b", refTo("a"))
+	loopA := b.Add("example.io", "Widget", "x", "a", refTo("b"))
+	loopB := b.Add("example.io", "Widget", "x", "b", refTo("a"))
 	tail := b.Add("example.io", "Widget", "x", "tail", refTo("b"))
 	const length = 48
 	for i := range length {

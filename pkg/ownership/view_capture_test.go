@@ -101,8 +101,6 @@ func TestViewReadsEachObjectAndSearchesEachOwnerOnce(t *testing.T) {
 	}
 }
 
-// Once a view has seen an object, every answer reflects that capture, though
-// the object changes before the next read.
 // catalogCounter counts the view's catalog lookups: it makes one for each
 // object it considers for an owner's children.
 type catalogCounter struct {
@@ -168,6 +166,8 @@ func TestViewReadsOnceWhenThereIsNothingToFind(t *testing.T) {
 	}
 }
 
+// Once a view has seen an object, every answer reflects that capture, though
+// the object changes before the next read.
 func TestViewAgreesWithItselfWhileTheClusterChanges(t *testing.T) {
 	before := ownershiptest.Fixture()
 	after := ownershiptest.Fixture()
@@ -307,12 +307,11 @@ func TestViewChildrenLimitCountsOnlyWhatTheCallerMayRead(t *testing.T) {
 	}
 }
 
-// podsPerNamespace reads Pods only namespace by namespace, as a user with a
-// role binding in every namespace and no cluster-wide grant does.
 // A gap on a namespaced kind across every namespace counts when the caller
-// may read that kind in all of them. When it may not, naming the gap would
-// say how Radar's collection of a kind the caller can't read is going; the
-// gap is left out, and the answer is narrowed anyway.
+// may read that kind in any of them, or its access couldn't be checked. When
+// it may read the kind nowhere, naming the gap would say how Radar's
+// collection of a kind the caller can't read is going; the gap is left out,
+// and the answer is narrowed anyway.
 func TestViewAuthorizesAnAllNamespacesGapByKind(t *testing.T) {
 	w := ownershiptest.Fixture()
 	w.Collection[pods] = ownershiptest.Collection{State: ownershiptest.Loading}
