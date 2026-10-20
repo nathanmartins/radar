@@ -3,7 +3,8 @@ package k8s
 import (
 	"context"
 	"errors"
-	"k8s.io/apimachinery/pkg/runtime"
+	"fmt"
+	goruntime "runtime"
 	"slices"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -163,6 +165,40 @@ func historyChild(name string) topology.ResourceRef {
 
 // A Deployment's history moves out of Children only for ReplicaSets the cache
 // holds with no Pod naming them, read through the session's own cache.
+// Only a Deployment or Rollout keeps rollback history, so the split gathers
+// nothing for another owner: a ReplicaSet with hundreds of Pods, like a
+// DaemonSet with thousands, costs what it costs without the split.
+func TestSplitHistoryCostsNothingForAnOwnerWithoutHistory(t *testing.T) {
+	const pods = 400
+	objects := []runtime.Object{historyReplicaSet("web-big", "3", pods, pods)}
+	for i := range pods {
+		objects = append(objects, historyPod(fmt.Sprintf("web-big-%03d", i), "web-big"))
+	}
+	_, _, source, _ := historyFixture(t, objects...)
+	rs := objects[0].(*appsv1.ReplicaSet)
+	subject := resourceid.Ref{Group: "apps", Kind: "ReplicaSet", Namespace: "shop", Name: "web-big"}
+	fetched := ownership.Observe(subject, "apps/v1", rs)
+	unrestricted := func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() }
+	bytes := func(present func(*topology.Relationships, *ownership.View, ownership.Session)) uint64 {
+		const answers = 5
+		var before, after goruntime.MemStats
+		goruntime.ReadMemStats(&before)
+		for range answers {
+			rel := &topology.Relationships{}
+			answerOwnership(source, topology.ApplyOwnership, present, rel, fetched, unrestricted)
+			if len(rel.Children) != pods {
+				t.Fatalf("%d children, want %d", len(rel.Children), pods)
+			}
+		}
+		goruntime.ReadMemStats(&after)
+		return (after.TotalAlloc - before.TotalAlloc) / answers
+	}
+	without, with := bytes(nil), bytes(splitHistory(subject, rs))
+	if with > without+without/20 {
+		t.Fatalf("the split adds %d bytes to an answer of %d; a ReplicaSet keeps no history", with-without, without)
+	}
+}
+
 func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
 	_, _, source, deployment := historyFixture(t,
 		historyReplicaSet("web-3", "3", 1, 1), historyPod("web-3-a", "web-3"),

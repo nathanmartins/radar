@@ -10,8 +10,10 @@ import (
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
-// maxOwnershipRefs caps Children and Manages on the wire: a Deployment's
-// ReplicaSets or a DaemonSet's Pods can number in the thousands.
+// maxOwnershipRefs caps Children, and a GitOps manager's Manages, on the
+// wire: a Deployment's ReplicaSets or a DaemonSet's Pods can number in the
+// thousands, an Application's members in the tens of thousands. Another
+// object's Manages, the graph's own edges, aren't capped.
 const maxOwnershipRefs = 500
 
 // ApplyOwnership answers rel's ownership from v, which reads for the caller,
@@ -63,9 +65,11 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 	}
 
 	// The GitOps managers whose member lists name the subject manage it,
-	// whether or not the graph draws the edge. A GitOps manager's edge, as
-	// when the graph matched the subject's labels, counts only where the
-	// search couldn't read its list; a list it read says itself.
+	// whether or not the graph draws the edge. A GitOps manager's edge counts
+	// only where the search couldn't read its list; a list it read says
+	// itself. The graph draws a HelmRelease's edges from its members' labels,
+	// and an Application's or Kustomization's from the same status list, for
+	// the workload and network kinds it draws.
 	recorders := v.Recorders(subject)
 	for _, m := range recorders.Recorders {
 		rel.Managers = appendResourceRef(rel.Managers, refOf(m.Ref))
@@ -111,8 +115,9 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 			// The list names another cluster's objects.
 			return
 		}
-		// With no list to read, the edges inferred from the members' labels
-		// are all there is.
+		// With no list to read, the graph's edges are all there is: by the
+		// members' labels for a HelmRelease, from the same status list for an
+		// Application or Kustomization.
 	}
 	gitops := ownership.IsRecordingManager(subject.GroupKind())
 	listed := map[resourceid.Ref]bool{}
@@ -160,11 +165,14 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 	case owner.Subject.Access == ownership.Undecided:
 		cov.Unavailable = string(readreason.UserPermissionCheckFailed)
 		return cov, owner, false
+	case owner.Subject.Read.State == ownership.Excluded:
+		// Ownership doesn't read Events, so it says nothing of one.
+		rel.Ownership = nil
+		return nil, owner, false
 	case owner.Subject.Read.State != ownership.Present:
+		// Seed answers for an object the caches hold no copy of, so only an
+		// unavailable read is left.
 		cov.Unavailable = string(owner.Subject.Read.Gap.Reason)
-		if owner.Subject.Read.State == ownership.Absent {
-			cov.Unavailable = string(readreason.ObjectNotFound)
-		}
 		return cov, owner, false
 	case owner.Subject.Read.Object.UID != fetched.UID:
 		cov.Changed = true

@@ -181,20 +181,26 @@ func (a *requestAccess) Everything() bool {
 
 // relationshipsFor is a fetched resource's Related Resources: the links the
 // relationship graph holds, with ownership answered from owner references
-// for the request's user, which needs no graph.
+// for the request's user. It is nil until Radar has a graph, as while its
+// caches sync or after a context switch: without one Radar can't say what
+// manages the object, and the UI reads a missing field as owners not mapped
+// yet, which its GitOps write guard warns about.
 func (s *Server) relationshipsFor(r *http.Request, kind, namespace, name string, resource any) *topology.Relationships {
-	var rel *topology.Relationships
-	if cache := k8s.GetResourceCache(); cache != nil {
-		if cachedTopo, relIdx := s.broadcaster.GetCachedTopologyWithIndex(); cachedTopo != nil {
-			if auth.UserFromContext(r.Context()) != nil {
-				cachedTopo = s.relationshipTopologyForUser(r, cachedTopo)
-				relIdx = nil
-			}
-			rel = topology.GetRelationshipsWithObject(kind, namespace, name, resource, cachedTopo,
-				k8s.NewTopologyResourceProvider(cache),
-				k8s.NewTopologyDynamicProvider(k8s.GetDynamicResourceCache(), k8s.GetResourceDiscovery()), relIdx)
-		}
+	cache := k8s.GetResourceCache()
+	if cache == nil {
+		return nil
 	}
+	cachedTopo, relIdx := s.broadcaster.GetCachedTopologyWithIndex()
+	if cachedTopo == nil {
+		return nil
+	}
+	if auth.UserFromContext(r.Context()) != nil {
+		cachedTopo = s.relationshipTopologyForUser(r, cachedTopo)
+		relIdx = nil
+	}
+	rel := topology.GetRelationshipsWithObject(kind, namespace, name, resource, cachedTopo,
+		k8s.NewTopologyResourceProvider(cache),
+		k8s.NewTopologyDynamicProvider(k8s.GetDynamicResourceCache(), k8s.GetResourceDiscovery()), relIdx)
 	fetched, ok := k8s.OwnershipObservation(resource)
 	if !ok {
 		return rel

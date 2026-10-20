@@ -1022,17 +1022,22 @@ function childrenNote(coverage: OwnershipCoverage | undefined): RelationshipNote
   if (!children) return undefined
   const uncollected = new Set<string>()
   let someNamespaces = false
+  let undiscovered = false
   const pressing = new Map<string, string>()
   for (const g of children.notChecked ?? []) {
-    const kind = g.kind || 'Kinds discovery did not list'
-    if (g.reason === 'radar_kind_not_collected') uncollected.add(kind)
+    if (!g.kind) undiscovered = true
+    else if (g.reason === 'radar_kind_not_collected') uncollected.add(g.kind)
     else if (g.reason === 'radar_namespace_not_collected') someNamespaces = true
-    else if (!pressing.has(kind)) pressing.set(kind, gapReasonText(g.reason))
+    else if (!pressing.has(g.kind)) pressing.set(g.kind, gapReasonText(g.reason))
   }
   const note: RelationshipNote = {}
   const hint: string[] = []
   if (uncollected.size > 0) hint.push(`Radar doesn't collect ${joinOr(Array.from(uncollected))} objects, so none of those are listed.`)
   if (someNamespaces) hint.push("Radar doesn't collect every namespace, so children in the others aren't listed.")
+  // An API group whose discovery fails, often a metrics API with no server
+  // behind it, leaves every answer with this gap; most such groups hold no
+  // children, so it is a hint, not a warning.
+  if (undiscovered) hint.push("Radar's API discovery missed some API groups, so children of their kinds aren't listed.")
   if (children.narrowed) hint.push('Only children you can view are listed.')
   if (hint.length > 0) note.hint = hint
   const text: string[] = []
@@ -1089,7 +1094,8 @@ function membersNote(manages: OwnershipCoverage['manages'] | undefined): Relatio
   if (!manages) return undefined
   if (manages.membership === 'remote') return { text: "Its destination isn't this cluster as far as Radar can tell, so its members aren't listed." }
   if (manages.membership === 'unreadable') {
-    return manages.unavailable ? { text: `Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).` } : undefined
+    if (manages.unavailable) return { text: `Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).` }
+    return { hint: ["Its status has no member list Radar can read now, so these are the resources the topology links to it."] }
   }
   const extra: string[] = []
   if (manages.missing) extra.push(`${manages.missing} not in the cluster`)

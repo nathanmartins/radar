@@ -174,6 +174,15 @@ describe('RelatedResourcesSection ownership', () => {
     expect(unread).toContain('Couldn&#x27;t read the members its status records (still loading).')
     const noList = renderToString(<RelatedResourcesSection relationships={{ manages: [rs], ownership: { children: { complete: true }, manages: { membership: 'unreadable' } } }} />)
     expect(noList).not.toContain('Couldn&#x27;t read')
+    expect(noList).toContain('Its status has no member list Radar can read now, so these are the resources the topology links to it.')
+  })
+
+  it('hints, without warning, at kinds API discovery missed', () => {
+    const html = renderToString(
+      <RelatedResourcesSection relationships={{ children: [rs], ownership: { children: { complete: false, notChecked: [{ reason: 'read_error' }] } } }} />,
+    )
+    expect(html).toContain('Radar&#x27;s API discovery missed some API groups, so children of their kinds aren&#x27;t listed.')
+    expect(html).not.toContain('Couldn&#x27;t check')
   })
 
   it("says a remote manager's members aren't listed", () => {

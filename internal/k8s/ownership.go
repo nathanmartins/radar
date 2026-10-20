@@ -62,11 +62,18 @@ func splitHistory(subject resourceid.Ref, owner metav1.Object) func(*topology.Re
 		if !ok || owner == nil {
 			return
 		}
-		captured := map[resourceid.Ref]types.UID{}
-		for _, c := range v.Children(subject, 0).Children {
-			captured[c.Ref] = c.UID
-		}
+		// Built on the first ReplicaSet the split asks about: only a
+		// Deployment or Rollout with a revision asks, and another kind's
+		// children, such as a DaemonSet's thousands of Pods, aren't gathered
+		// twice.
+		var captured map[resourceid.Ref]types.UID
 		topology.SplitInactiveReplicaSets(rel, subject.GroupKind(), owner.GetAnnotations(), func(namespace, name string) (*appsv1.ReplicaSet, bool, bool) {
+			if captured == nil {
+				captured = map[resourceid.Ref]types.UID{}
+				for _, c := range v.Children(subject, 0).Children {
+					captured[c.Ref] = c.UID
+				}
+			}
 			uid, isChild := captured[resourceid.Ref{Group: "apps", Kind: "ReplicaSet", Namespace: namespace, Name: name}]
 			obj, found, ok := typed.ReadableObject(k8score.ReplicaSets, namespace, name)
 			rs, isReplicaSet := obj.(*appsv1.ReplicaSet)

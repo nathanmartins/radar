@@ -19,9 +19,12 @@ import (
 
 // withOwnershipDiscovery serves the fixture's kinds as Kubernetes does, with
 // delete, so the garbage collector's kinds are the ones searched for
-// dependents.
+// dependents. It also marks the relationship graph for a rebuild on the next
+// read, as Radar's first update cycle does, since a GET answers nothing
+// without one.
 func withOwnershipDiscovery(t *testing.T) {
 	t.Helper()
+	testServerSrv.broadcaster.markCachedTopologyDirty()
 	verbs := metav1.Verbs{"create", "delete", "get", "list", "patch", "update", "watch"}
 	fd := &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{}}
 	fd.Resources = []*metav1.APIResourceList{
@@ -111,9 +114,41 @@ func TestResourceGetAnswersOwnershipFromOwnerReferences(t *testing.T) {
 
 // A user who may read the namespace but not one of the kinds the GET gate
 // checks there sees the same children, marked narrowed.
+// Until Radar has a relationship graph, as while it starts or after a context
+// switch, a GET sends no relationships: the UI reads that as owners not mapped
+// yet, and its GitOps write guard warns instead of finding no manager.
+func TestResourceGetWithoutAGraphSendsNoRelationships(t *testing.T) {
+	withOwnershipDiscovery(t)
+	b := testServerSrv.broadcaster
+	b.cachedTopologyMu.Lock()
+	topo, idx, dirty := b.cachedTopology, b.cachedTopologyIndex, b.cachedTopologyDirty
+	b.cachedTopology, b.cachedTopologyIndex, b.cachedTopologyDirty = nil, nil, false
+	b.cachedTopologyMu.Unlock()
+	t.Cleanup(func() {
+		b.cachedTopologyMu.Lock()
+		b.cachedTopology, b.cachedTopologyIndex, b.cachedTopologyDirty = topo, idx, dirty
+		b.cachedTopologyMu.Unlock()
+	})
+	resp, err := http.Get(testServer.URL + "/api/resources/deployments/default/nginx?group=apps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Relationships *topology.Relationships `json:"relationships"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || body.Relationships != nil {
+		t.Fatalf("status %d, relationships %+v; want none without a graph", resp.StatusCode, body.Relationships)
+	}
+}
+
 func TestResourceGetOwnershipForAUserWhoMayReadLess(t *testing.T) {
 	withOwnershipDiscovery(t)
 	env := newAuthTestServer(t)
+	env.srv.broadcaster.markCachedTopologyDirty()
 	for _, tc := range []struct {
 		user     string
 		secrets  bool
@@ -207,6 +242,16 @@ func TestRelationshipAccessFollowsTheGraphFilter(t *testing.T) {
 	}
 	if ns, all := a.Namespaces(); all || len(ns) != 1 || ns[0] != "alpha" {
 		t.Errorf("Namespaces = %v %v", ns, all)
+	}
+	// A resource GET checks LimitRanges per namespace, so ownership does too.
+	env.srv.permCache.Set("gina", nil, &auth.UserPermissions{AllowedNamespaces: []string{"alpha"}})
+	gina := env.srv.permCache.Get("gina", nil)
+	gina.SetCanI("list", "", "secrets", "alpha", true)
+	gina.SetCanI("list", "", "limitranges", "alpha", false)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	limited := env.srv.ownershipAccess(req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{Username: "gina"})), catalog)
+	if got := limited.Read(resourceid.GroupKind{Kind: "LimitRange"}, "alpha"); got != ownership.Denied || limited.AllKindsIn("alpha") {
+		t.Errorf("gina: Read(LimitRange, alpha) = %v, AllKindsIn(alpha) = %v; gina may not list LimitRanges there", got, limited.AllKindsIn("alpha"))
 	}
 
 	// In any namespace: an ordinary kind wherever namespace access reaches; a

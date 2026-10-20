@@ -559,7 +559,6 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 		a.Gaps = append(a.Gaps, Gap{Kind: manager.GroupKind(), Namespace: manager.Namespace, Reason: readreason.KindSyncPending})
 		return a
 	}
-	v.listRead(manager, inventory.Membership != MembersUnreadable)
 	for ref, search := range v.recorderSearches {
 		if !v.recordersAgree(search, ref, manager, inventory) {
 			v.changed = true

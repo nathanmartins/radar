@@ -574,9 +574,10 @@ type CascadeDeletePreview struct {
 type OwnershipCoverage struct {
 	// OwnerState is the state of the owner reference when Owner is empty:
 	// "gone" or "replaced" when it names a deleted owner, "withheld" when the
-	// caller may not read the owner, "unknown", "unresolvable", or "several"
-	// when there are several references and none is a controller. Empty when
-	// there is no owner reference, or Owner is set.
+	// caller may not read the owner, "unknown", "unresolvable", "excluded"
+	// when it names an Event, or "several" when there are several references
+	// and none is a controller. Empty when there is no owner reference, or
+	// Owner is set.
 	OwnerState string `json:"ownerState,omitempty"`
 	// OwnerRef is the owner the reference names when it is gone, replaced or
 	// unknown: the object's own metadata names it.

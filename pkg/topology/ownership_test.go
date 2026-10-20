@@ -384,6 +384,18 @@ func (s *searchCounter) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 	return s.Session.Recorders(ref)
 }
 
+// Ownership doesn't read Events, so an Event's Related Resources carry no
+// ownership answer at all rather than one with nothing in it and no reason.
+func TestApplyOwnershipSaysNothingOfAnEvent(t *testing.T) {
+	w := ownershiptest.Fixture()
+	event := ownership.Observation{Ref: resourceid.Ref{Kind: "Event", Namespace: "alpha", Name: "e1"}, APIVersion: "v1", UID: "uid-alpha-e1"}
+	rel := &Relationships{Owner: &ResourceRef{Kind: "Pod", Namespace: "alpha", Name: "stale"}}
+	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), event)
+	if rel.Ownership != nil || rel.Owner != nil || rel.Children != nil {
+		t.Fatalf("an Event's ownership = %+v, owner %+v, children %v; want none", rel.Ownership, rel.Owner, rel.Children)
+	}
+}
+
 // ApplyOwner gives every object the owner ApplyOwnership gives it, and why
 // there is none, without searching for children or reading a member list.
 func TestApplyOwnerAnswersTheOwnerWithoutSearching(t *testing.T) {
@@ -405,8 +417,12 @@ func TestApplyOwnerAnswersTheOwnerWithoutSearching(t *testing.T) {
 			t.Errorf("%v: owner %v, want %v", o.Ref, owner.Owner, full.Owner)
 		}
 		got, want := owner.Ownership, full.Ownership
-		if got.OwnerState != want.OwnerState || !reflect.DeepEqual(got.OwnerRef, want.OwnerRef) || got.OwnerReason != want.OwnerReason ||
-			got.Unavailable != want.Unavailable || got.Changed != want.Changed {
+		if (got == nil) != (want == nil) {
+			t.Errorf("%v: owner coverage %+v, want %+v", o.Ref, got, want)
+			continue
+		}
+		if got != nil && (got.OwnerState != want.OwnerState || !reflect.DeepEqual(got.OwnerRef, want.OwnerRef) || got.OwnerReason != want.OwnerReason ||
+			got.Unavailable != want.Unavailable || got.Changed != want.Changed) {
 			t.Errorf("%v: owner coverage %+v, want %+v", o.Ref, got, want)
 		}
 	}
@@ -477,6 +493,23 @@ func TestApplyOwnershipNamesTheDeploymentOnlyThroughControllers(t *testing.T) {
 		if rel.Owner == nil || refIdentity(*rel.Owner) != rs.Ref {
 			t.Errorf("%s: owner %v, want the ReplicaSet its only reference names", name, rel.Owner)
 		}
+	}
+}
+
+// An Application can record tens of thousands of members; the wire carries
+// the first members up to the cap and says the list was cut.
+func TestApplyOwnershipCapsARecordedMemberList(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	var members []resourceid.Ref
+	for i := range maxOwnershipRefs + 20 {
+		members = append(members, b.Add("", "ConfigMap", "alpha", fmt.Sprintf("c-%04d", i)).Ref)
+	}
+	app := b.Manager(ownership.ArgoApplication, "argocd", "app", ownership.MembersRecorded, "alpha", members...)
+	w := b.World()
+	rel := &Relationships{}
+	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, app.Ref))
+	if len(rel.Manages) != maxOwnershipRefs || !rel.Ownership.Manages.Truncated || rel.Ownership.Manages.Membership != "recorded" {
+		t.Fatalf("%d manages, coverage %+v; want the first %d recorded, marked truncated", len(rel.Manages), rel.Ownership.Manages, maxOwnershipRefs)
 	}
 }
 

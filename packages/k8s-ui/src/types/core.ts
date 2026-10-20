@@ -700,7 +700,7 @@ export interface OwnershipGap {
 }
 
 export interface OwnershipCoverage {
-  /** The owner reference's state when no owner is named: gone, replaced, withheld, unknown, unresolvable or several. */
+  /** The owner reference's state when no owner is named: gone, replaced, withheld, unknown, unresolvable, excluded (it names an Event) or several. */
   ownerState?: string
   /** The owner the reference names when it is gone, replaced or unknown. */
   ownerRef?: ResourceRef
