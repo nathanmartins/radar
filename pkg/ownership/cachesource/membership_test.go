@@ -1,11 +1,16 @@
 package cachesource
 
 import (
+	"context"
 	"fmt"
+	"runtime"
 	"slices"
 	"testing"
+	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/skyhook-io/radar/pkg/gitops"
@@ -25,6 +30,11 @@ func manager(gk resourceid.GroupKind, spec, status map[string]any) *unstructured
 		u.Object["status"] = status
 	}
 	u.SetKind(gk.Kind)
+	return u
+}
+
+func atGeneration(u *unstructured.Unstructured, generation int64) *unstructured.Unstructured {
+	u.SetGeneration(generation)
 	return u
 }
 
@@ -80,6 +90,15 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 			map[string]any{"id": "shop_web-podinfo__Service", "v": "v1"},
 		}}}), ownership.MembersRemote, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "web-podinfo"}}},
 		{"a HelmRelease applying elsewhere, without an inventory", manager(hr, map[string]any{"kubeConfig": map[string]any{"secretRef": map[string]any{"name": "prod"}}}, nil), ownership.MembersUnreadable, nil},
+		// Suspended in the same write that removed spec.kubeConfig: the
+		// inventory is still the other cluster's.
+		{"a Kustomization whose inventory predates its spec", atGeneration(manager(ks, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "shop_ui__Service", "v": "v1"},
+		}}}), 2), ownership.MembersUnreadable, nil},
+		{"a HelmRelease whose inventory predates its spec", atGeneration(manager(hr, map[string]any{"suspend": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{}}}), 2), ownership.MembersUnreadable, nil},
+		{"a Kustomization that reconciled its spec", atGeneration(manager(ks, nil, map[string]any{"observedGeneration": int64(2), "inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "shop_ui__Service", "v": "v1"},
+		}}}), 2), ownership.MembersRecorded, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "ui"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gk := ownership.ArgoApplication
@@ -92,6 +111,9 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 			got := membersOf(gk, tc.obj)
 			if got.state != tc.state || !slices.Equal(got.Entries, tc.want) {
 				t.Fatalf("got %v %v, want %v %v", got.state, got.Entries, tc.state, tc.want)
+			}
+			if state := memberState(gk, tc.obj); state != tc.state {
+				t.Fatalf("memberState = %v, membersOf %v", state, tc.state)
 			}
 		})
 	}
@@ -257,11 +279,13 @@ func TestMembersOfRBACNamesWithColons(t *testing.T) {
 	}
 }
 
-// Recorders reads each manager kind once, for the unreadable key and every
-// reading of the object together. A manager changing during the search, from
-// an unreadable list to one naming the object or from one reading of its entry
-// to another, is then found in one of its states; one read per key could land
-// each read between two changes and find it in none.
+// Recorders reads each manager kind once, asking for the unreadable key and
+// every reading of the object in the same read. That one read takes all of them
+// in one pass under the store's lock (TestReadableIndexedReadsItsKeysTogether),
+// so a manager changing during the search, from an unreadable list to one
+// naming the object or from one reading of its entry to another, is found in
+// one of its states; one read per key could land between two changes and find
+// it in none.
 func TestRecordersReadEachManagerKindOnce(t *testing.T) {
 	s := begin(t, render(t, ownershiptest.Fixture()).source()).(*session)
 	reads := map[resourceid.GroupKind][][]string{}
@@ -278,5 +302,129 @@ func TestRecordersReadEachManagerKindOnce(t *testing.T) {
 		if got := reads[gk]; len(got) != 1 || !slices.Equal(got[0], want) {
 			t.Errorf("%v read %q, want one read of %q", gk, got, want)
 		}
+	}
+}
+
+// A search classifies every manager whose list names the object. Opening a
+// member of a 10,000-object Application or Kustomization must not cost what
+// building its list would.
+func TestMemberStateCostDoesNotGrowWithTheList(t *testing.T) {
+	argo := func(n int) *unstructured.Unstructured {
+		entries := make([]any, n)
+		for i := range entries {
+			entries[i] = map[string]any{"kind": "Service", "name": fmt.Sprint("svc-", i), "namespace": "shop"}
+		}
+		return manager(ownership.ArgoApplication, localDestination, map[string]any{"reconciledAt": "x", "resources": entries})
+	}
+	flux := func(n int) *unstructured.Unstructured {
+		entries := make([]any, n)
+		for i := range entries {
+			entries[i] = map[string]any{"id": fmt.Sprintf("shop_svc-%d__Service", i), "v": "v1"}
+		}
+		return manager(ownership.FluxKustomization, nil, map[string]any{"inventory": map[string]any{"entries": entries}})
+	}
+	for _, tc := range []struct {
+		gk           resourceid.GroupKind
+		small, large *unstructured.Unstructured
+	}{
+		{ownership.ArgoApplication, argo(40), argo(10000)},
+		{ownership.FluxKustomization, flux(40), flux(10000)},
+	} {
+		if state := memberState(tc.gk, tc.large); state != ownership.MembersRecorded {
+			t.Fatalf("%v: %v", tc.gk, state)
+		}
+		small := testing.AllocsPerRun(20, func() { memberState(tc.gk, tc.small) })
+		large := testing.AllocsPerRun(20, func() { memberState(tc.gk, tc.large) })
+		if large > small {
+			t.Errorf("%v: %v allocations for 10,000 entries, %v for 40", tc.gk.Kind, large, small)
+		}
+	}
+}
+
+// A Flux object suspended in the write that removed spec.kubeConfig keeps
+// the other cluster's inventory; Recorders must not take its entries for
+// this cluster's objects, or call the answer complete.
+func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
+	for _, kind := range []resourceid.GroupKind{ownership.FluxKustomization, ownership.FluxHelmRelease} {
+		t.Run(kind.Kind, func(t *testing.T) {
+			target := resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}
+			k, _ := ownershiptest.KindOf(kind)
+			m := ownershiptest.Object{Ref: resourceid.Ref{Group: kind.Group, Kind: kind.Kind, Namespace: "ops", Name: "m"}, APIVersion: k.APIVersion(),
+				UID: "uid-m", ResourceVersion: "1", Membership: ownership.MembersRemote, Members: []resourceid.Ref{target}}
+			w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}, Objects: []ownershiptest.Object{m}}
+			for _, item := range ownershiptest.Kinds {
+				w.Collection[item.GroupKind] = ownershiptest.Collection{OnDemand: !item.Typed}
+			}
+			r := render(t, w)
+			client := r.dynamic.Resource(schema.GroupVersionResource{Group: k.Group, Version: k.Version, Resource: k.Resource}).Namespace("ops")
+			u, err := client.Get(context.Background(), "m", metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := unstructured.SetNestedField(u.Object, int64(1), "status", "observedGeneration"); err != nil {
+				t.Fatal(err)
+			}
+			u.Object["spec"] = map[string]any{"suspend": true}
+			u.SetGeneration(2)
+			u.SetResourceVersion("2")
+			if _, err := client.Update(context.Background(), u, metav1.UpdateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				s := begin(t, r.source())
+				if inv := s.Inventory(m.Ref); inv.Manager.Object.ResourceVersion == "2" {
+					if inv.Membership != ownership.MembersUnreadable {
+						t.Fatalf("Inventory = %v", inv.Membership)
+					}
+					got := s.Recorders(target)
+					if len(got.Recorders) > 0 || got.Complete() || !slices.Contains(got.Unreadable, m.Ref) {
+						t.Fatalf("Recorders(%v) = %+v, complete %v; the list may be the other cluster's", target, got, got.Complete())
+					}
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the updated spec never reached the cache")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+}
+
+// Opening a member of a large Application searches for the managers recording
+// it; that costs the same however long the list naming it is. Counting
+// allocations can't tell: building a list sized up front is one allocation at
+// any length.
+func TestRecordersCostDoesNotGrowWithTheManagersList(t *testing.T) {
+	target := resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}
+	bytesPerSearch := func(n int) uint64 {
+		members := []resourceid.Ref{target}
+		for i := 1; i < n; i++ {
+			members = append(members, resourceid.Ref{Kind: "Service", Namespace: "shop", Name: fmt.Sprint("svc-", i)})
+		}
+		k, _ := ownershiptest.KindOf(ownership.ArgoApplication)
+		app := ownershiptest.Object{Ref: resourceid.Ref{Group: k.Group, Kind: k.Kind, Namespace: "argocd", Name: "big"}, APIVersion: k.APIVersion(),
+			UID: "uid-big", ResourceVersion: "1", Membership: ownership.MembersRecorded, Members: members}
+		w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}, Objects: []ownershiptest.Object{app}}
+		for _, item := range ownershiptest.Kinds {
+			w.Collection[item.GroupKind] = ownershiptest.Collection{OnDemand: !item.Typed}
+		}
+		s := begin(t, render(t, w).source())
+		if got := s.Recorders(target); len(got.Recorders) != 1 {
+			t.Fatalf("Recorders(%v) = %+v", target, got)
+		}
+		const searches = 20
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		for range searches {
+			s.Recorders(target)
+		}
+		runtime.ReadMemStats(&after)
+		return (after.TotalAlloc - before.TotalAlloc) / searches
+	}
+	small, large := bytesPerSearch(40), bytesPerSearch(10000)
+	if large > small+64<<10 {
+		t.Fatalf("%d bytes per search when a 10,000-entry list names the object, %d for 40", large, small)
 	}
 }

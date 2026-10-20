@@ -24,6 +24,9 @@ func TestParseFluxInventoryID(t *testing.T) {
 		{name: "colon in an RBAC name", id: "_system__metrics-server_rbac.authorization.k8s.io_ClusterRole", group: "rbac.authorization.k8s.io", kind: "ClusterRole", resource: "system:metrics-server", ok: true},
 		{name: "colons in a namespaced RBAC name", id: "kube-system_cert-manager__leaderelection_rbac.authorization.k8s.io_Role", group: "rbac.authorization.k8s.io", kind: "Role", namespace: "kube-system", resource: "cert-manager:leaderelection", ok: true},
 		{name: "invalid", id: "only_three_parts", ok: false},
+		{name: "no underscore", id: "podinfo", ok: false},
+		{name: "an empty name", id: "ns__apps_Deployment", ok: false},
+		{name: "an empty kind", id: "ns_podinfo_apps_", ok: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -32,6 +35,14 @@ func TestParseFluxInventoryID(t *testing.T) {
 				t.Fatalf("ParseFluxInventoryID(%q) = (%q, %q, %q, %q, %v)", test.id, group, kind, namespace, resource, ok)
 			}
 		})
+	}
+}
+
+// A Kustomization can list thousands of objects, and a search reads a
+// manager's whole inventory to tell whether Radar can trust it.
+func TestParseFluxInventoryIDAllocatesNothing(t *testing.T) {
+	if n := testing.AllocsPerRun(100, func() { ParseFluxInventoryID("flux-system_my_weird_name_apps_Deployment") }); n != 0 {
+		t.Fatalf("%v allocations per entry", n)
 	}
 }
 

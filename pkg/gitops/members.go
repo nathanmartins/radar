@@ -19,7 +19,18 @@ type MemberList struct {
 // Argo CD compared it against. ok is false when the list can't be trusted, so
 // that any object may be a member: the Application has no destination, Argo CD
 // hasn't reconciled it, or an entry names no object.
-func ArgoMembers(app *unstructured.Unstructured) (list MemberList, ok bool) {
+func ArgoMembers(app *unstructured.Unstructured) (MemberList, bool) {
+	return argoMembers(app, true)
+}
+
+// ArgoMembersReadable reports whether ArgoMembers reads app's list, making the
+// same checks without building the list, whose cost grows with it.
+func ArgoMembersReadable(app *unstructured.Unstructured) bool {
+	_, ok := argoMembers(app, false)
+	return ok
+}
+
+func argoMembers(app *unstructured.Unstructured, collect bool) (list MemberList, ok bool) {
 	name, server, destination := ArgoComparedDestination(app)
 	if name == "" && server == "" {
 		return MemberList{}, false
@@ -41,6 +52,9 @@ func ArgoMembers(app *unstructured.Unstructured) (list MemberList, ok bool) {
 	if !isList {
 		return MemberList{}, false
 	}
+	if collect && len(items) > 0 {
+		list.Entries = make([]Member, 0, len(items))
+	}
 	for _, item := range items {
 		e, isMap := item.(map[string]any)
 		if !isMap {
@@ -53,14 +67,33 @@ func ArgoMembers(app *unstructured.Unstructured) (list MemberList, ok bool) {
 		if !kindOK || !nameOK || kind == "" || name == "" || !groupOK || !namespaceOK {
 			return MemberList{}, false
 		}
-		list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
+		if collect {
+			list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
+		}
 	}
 	return list, true
 }
 
 // FluxMembers reads a Kustomization's or HelmRelease's status.inventory. ok is
-// false when there is no inventory or an entry's ID doesn't parse.
-func FluxMembers(obj *unstructured.Unstructured) (list MemberList, ok bool) {
+// false when there is no inventory, an entry's ID doesn't parse, or the
+// controller hasn't observed the current spec, as while the object is
+// suspended: Flux records no destination with its inventory, so one written
+// before a spec.kubeConfig change may list another cluster's objects.
+func FluxMembers(obj *unstructured.Unstructured) (MemberList, bool) {
+	return fluxMembers(obj, true)
+}
+
+// FluxMembersReadable reports whether FluxMembers reads obj's list, making the
+// same checks without building the list, whose cost grows with it.
+func FluxMembersReadable(obj *unstructured.Unstructured) bool {
+	_, ok := fluxMembers(obj, false)
+	return ok
+}
+
+func fluxMembers(obj *unstructured.Unstructured, collect bool) (list MemberList, ok bool) {
+	if observed, found, err := unstructured.NestedInt64(obj.Object, "status", "observedGeneration"); err == nil && found && observed < obj.GetGeneration() {
+		return MemberList{}, false
+	}
 	raw, _, err := unstructured.NestedFieldNoCopy(obj.Object, "status", "inventory")
 	inventory, isMap := raw.(map[string]any)
 	if err != nil || !isMap {
@@ -69,6 +102,9 @@ func FluxMembers(obj *unstructured.Unstructured) (list MemberList, ok bool) {
 	items, isList := inventory["entries"].([]any)
 	if !isList && inventory["entries"] != nil {
 		return MemberList{}, false
+	}
+	if collect && len(items) > 0 {
+		list.Entries = make([]Member, 0, len(items))
 	}
 	for _, item := range items {
 		e, isMap := item.(map[string]any)
@@ -83,7 +119,9 @@ func FluxMembers(obj *unstructured.Unstructured) (list MemberList, ok bool) {
 		if !parsed {
 			return MemberList{}, false
 		}
-		list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
+		if collect {
+			list.Entries = append(list.Entries, Member{Group: group, Kind: kind, Namespace: namespace, Name: name})
+		}
 	}
 	return list, true
 }

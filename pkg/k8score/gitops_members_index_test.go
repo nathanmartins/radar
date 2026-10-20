@@ -197,3 +197,48 @@ func BenchmarkMembersIndexUpdate(b *testing.B) {
 		}
 	}
 }
+
+// interleavingIndexer counts reads of one key at a time and, at the first,
+// moves its manager from one key to another, as an update landing between two
+// such reads would.
+type interleavingIndexer struct {
+	cache.Indexer
+	next  *unstructured.Unstructured
+	reads int
+}
+
+func (i *interleavingIndexer) ByIndex(index, key string) ([]any, error) {
+	hits, err := i.Indexer.ByIndex(index, key)
+	if i.reads++; i.reads == 1 {
+		_ = i.Indexer.Update(i.next)
+	}
+	return hits, err
+}
+
+type syncedInformer struct {
+	cache.SharedIndexInformer
+	indexer cache.Indexer
+}
+
+func (i syncedInformer) HasSynced() bool           { return true }
+func (i syncedInformer) GetIndexer() cache.Indexer { return i.indexer }
+
+// Several keys are read together, in one pass under the store's lock: a
+// manager whose list stops naming the object between reads of one key and the
+// next is still found under one of them.
+func TestReadableIndexedReadsItsKeysTogether(t *testing.T) {
+	gvr := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{GitOpsMembersIndex: memberKeys(gitops.ArgoMembers)})
+	if err := indexer.Add(argoApplication("web", []any{map[string]any{"kind": "Service", "name": "ui"}})); err != nil {
+		t.Fatal(err)
+	}
+	interleaving := &interleavingIndexer{Indexer: indexer, next: argoApplication("web", nil)}
+	d := &DynamicResourceCache{informers: map[informerKey]*informerEntry{{gvr: gvr}: {informer: syncedInformer{indexer: interleaving}}}}
+	objs, _, ok := d.ReadableIndexed(gvr, "", GitOpsMembersIndex, UnreadableMembersKey, MemberKey(MemberMeant, "", "Service", "shop", "ui"))
+	if !ok || len(objs) != 1 {
+		t.Fatalf("found %v (ok %v); the manager moved between keys and was lost", objs, ok)
+	}
+	if interleaving.reads != 0 {
+		t.Fatalf("%d reads of one key at a time", interleaving.reads)
+	}
+}

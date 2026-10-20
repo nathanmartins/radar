@@ -123,14 +123,22 @@ func isLocalAPIServer(server string) bool {
 // (system:metrics-server is system__metrics-server) and reads every "__" back
 // as a colon; no other kind's name can hold either.
 func ParseFluxInventoryID(id string) (group, kind, namespace, name string, ok bool) {
-	parts := strings.Split(id, "_")
-	if len(parts) < 4 {
+	// namespace_name_group_kind: a name is the only part that can hold an
+	// underscore. Slicing rather than splitting reads a whole inventory
+	// without an allocation per entry.
+	last := strings.LastIndexByte(id, '_')
+	if last < 0 {
 		return "", "", "", "", false
 	}
-	kind = parts[len(parts)-1]
-	group = resourceid.NormalizeGroup(parts[len(parts)-2])
-	namespace = parts[0]
-	name = strings.ReplaceAll(strings.Join(parts[1:len(parts)-2], "_"), "__", ":")
+	beforeGroup := strings.LastIndexByte(id[:last], '_')
+	first := strings.IndexByte(id, '_')
+	if beforeGroup <= first {
+		return "", "", "", "", false
+	}
+	kind = id[last+1:]
+	group = resourceid.NormalizeGroup(id[beforeGroup+1 : last])
+	namespace = id[:first]
+	name = strings.ReplaceAll(id[first+1:beforeGroup], "__", ":")
 	if kind == "" || name == "" {
 		return "", "", "", "", false
 	}

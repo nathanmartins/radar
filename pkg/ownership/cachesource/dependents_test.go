@@ -300,8 +300,12 @@ func TestOwnerCandidatesDoNoIO(t *testing.T) {
 
 // The search goes through the owner index, so its cost follows the owner's
 // dependents, not how many other objects Radar holds.
+// The search reads the owner index, not the kind: its cost doesn't grow with
+// objects that name other owners. Counting allocations can't tell, since
+// listing the whole kind is one allocation however many it holds; the bytes
+// grow with them.
 func TestOwnerCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
-	allocations := func(unrelated int) float64 {
+	bytesPerSearch := func(unrelated int) uint64 {
 		objs := []runtime.Object{
 			&appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "rs", UID: "uid-rs"}},
 			&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "owned", UID: "uid-owned", OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "rs", UID: "uid-rs"}}}},
@@ -328,11 +332,18 @@ func TestOwnerCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
 		if got := s.OwnerCandidates("uid-rs", ownership.InNamespace("alpha"), 0); len(got.Candidates) != 1 {
 			t.Fatalf("with %d unrelated Pods: %+v", unrelated, got)
 		}
-		return testing.AllocsPerRun(20, func() { s.OwnerCandidates("uid-rs", ownership.InNamespace("alpha"), 0) })
+		const searches = 20
+		var before, after goruntime.MemStats
+		goruntime.ReadMemStats(&before)
+		for range searches {
+			s.OwnerCandidates("uid-rs", ownership.InNamespace("alpha"), 0)
+		}
+		goruntime.ReadMemStats(&after)
+		return (after.TotalAlloc - before.TotalAlloc) / searches
 	}
-	small, large := allocations(10), allocations(5000)
-	if large > small {
-		t.Fatalf("%v allocations per search with 5,000 unrelated Pods, %v with 10; the search must not scan the kind", large, small)
+	small, large := bytesPerSearch(10), bytesPerSearch(5000)
+	if large > small+16<<10 {
+		t.Fatalf("%d bytes per search with 5,000 unrelated Pods, %d with 10; the search must not scan the kind", large, small)
 	}
 }
 
