@@ -59,6 +59,18 @@ describe('RelatedResourcesSection ownership', () => {
     expect(html.match(/web-7d9f8/g)).toHaveLength(1)
   })
 
+  it('says how Managed By differs from Owner', () => {
+    const html = renderToString(<RelatedResourcesSection relationships={{ managers: [app] }} onNavigate={() => {}} />)
+    expect(html).toContain("Kubernetes&#x27; garbage collector follows owner references, not these links.")
+  })
+
+  it('puts a coverage hint on a button a keyboard can reach', () => {
+    const html = renderToString(
+      <RelatedResourcesSection relationships={{ children: [rs], ownership: { children: { complete: false, notChecked: [{ reason: 'read_error' }] } } }} />,
+    )
+    expect(html).toMatch(/<button type="button"[^>]*aria-label="Radar&#x27;s API discovery missed some API groups/)
+  })
+
   it('shows management apart from ownership', () => {
     const html = renderToString(<RelatedResourcesSection relationships={{ managers: [app], manages: [rs] }} onNavigate={() => {}} />)
     expect(html).toContain('Managed By')

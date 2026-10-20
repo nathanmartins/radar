@@ -892,7 +892,7 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
           />
         )}
         {relationships.managers && relationships.managers.length > 0 && (
-          <RelationshipGroup label="Managed By" refs={dedupeResourceRefs(relationships.managers)} onNavigate={onNavigate} />
+          <RelationshipGroup label="Managed By" refs={dedupeResourceRefs(relationships.managers)} onNavigate={onNavigate} note={MANAGED_BY_NOTE} />
         )}
         {relationships.deployment && (
           <RelationshipGroup label="Deployment" refs={[relationships.deployment]} onNavigate={onNavigate} />
@@ -1152,6 +1152,14 @@ function olderRevisions(refs: ResourceRef[] | undefined): MoreRefs | undefined {
 
 const RELATIONSHIP_TRUNCATE_LIMIT = 10
 
+// Managed By sits next to Owner and reads like it, so it says how they differ.
+const MANAGED_BY_NOTE: RelationshipNote = {
+  hint: [
+    "What applies or controls this resource without an owner reference, such as an Argo CD Application or Flux object whose status lists it.",
+    "Kubernetes' garbage collector follows owner references, not these links.",
+  ],
+}
+
 export function RelationshipGroup({ label, refs, onNavigate, note, more }: RelationshipGroupProps) {
   const [showAll, setShowAll] = useState(false)
   if ((!refs || refs.length === 0) && !note && !more) return null
@@ -1163,8 +1171,10 @@ export function RelationshipGroup({ label, refs, onNavigate, note, more }: Relat
       <div className="text-xs text-theme-text-tertiary mb-1 flex items-center gap-1">
         <span>{label}{refs.length > 1 ? ` (${refs.length})` : ''}</span>
         {note?.hint && (
-          <Tooltip content={<div className="space-y-0.5">{note.hint.map((line) => <div key={line}>{line}</div>)}</div>} delay={150}>
-            <Info className="w-3 h-3" aria-label={note.hint.join(' ')} />
+          <Tooltip content={<div className="space-y-0.5">{note.hint.map((line) => <div key={line}>{line}</div>)}</div>} delay={150} className="max-h-64 overflow-y-auto">
+            <button type="button" className="inline-flex rounded text-theme-text-tertiary hover:text-theme-text-secondary" aria-label={note.hint.join(' ')}>
+              <Info className="w-3 h-3" aria-hidden="true" />
+            </button>
           </Tooltip>
         )}
       </div>
