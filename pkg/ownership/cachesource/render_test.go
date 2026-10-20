@@ -66,7 +66,7 @@ func newWorldDiscovery(w ownershiptest.World) *worldDiscovery {
 	return d
 }
 
-func setMeta(t *testing.T, obj runtime.Object, o ownershiptest.Object) {
+func setMeta(t testing.TB, obj runtime.Object, o ownershiptest.Object) {
 	t.Helper()
 	m, err := apimeta.Accessor(obj)
 	if err != nil {
@@ -89,7 +89,7 @@ func setMeta(t *testing.T, obj runtime.Object, o ownershiptest.Object) {
 
 // apiObject renders o as the API serves it: a typed object for a kind Radar's
 // typed cache holds, unstructured otherwise.
-func apiObject(t *testing.T, o ownershiptest.Object) (runtime.Object, bool) {
+func apiObject(t testing.TB, o ownershiptest.Object) (runtime.Object, bool) {
 	t.Helper()
 	k, ok := ownershiptest.KindOf(o.Ref.GroupKind())
 	if !ok || o.APIVersion != k.APIVersion() {
@@ -223,7 +223,7 @@ func renderFluxManager(u *unstructured.Unstructured, o ownershiptest.Object) {
 
 // render starts Radar's caches over fake clients holding w, collected as
 // w.Collection says, and returns once every collected store has loaded.
-func render(t *testing.T, w ownershiptest.World) *rendered {
+func render(t testing.TB, w ownershiptest.World) *rendered {
 	t.Helper()
 	var typedObjects, dynamicObjects []runtime.Object
 	for _, o := range w.Objects {
@@ -344,7 +344,7 @@ func (r *rendered) reactDynamic(k ownershiptest.Kind, c ownershiptest.Collection
 
 // watchDynamic has the dynamic cache watch k as c says, and waits for the
 // watches c says have loaded.
-func (r *rendered) watchDynamic(t *testing.T, k ownershiptest.Kind, c ownershiptest.Collection) {
+func (r *rendered) watchDynamic(t testing.TB, k ownershiptest.Kind, c ownershiptest.Collection) {
 	t.Helper()
 	gvr := schema.GroupVersionResource{Group: k.Group, Version: k.Version, Resource: k.Resource}
 	switch c.State {

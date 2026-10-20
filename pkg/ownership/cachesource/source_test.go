@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,6 +21,7 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	clientscheme "k8s.io/client-go/kubernetes/scheme"
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/skyhook-io/radar/pkg/k8score"
@@ -177,7 +179,7 @@ func (f *fixture) source() *Source {
 	return New(func() Caches { return f.caches })
 }
 
-func begin(t *testing.T, s *Source) ownership.Session {
+func begin(t testing.TB, s *Source) ownership.Session {
 	t.Helper()
 	session, err := s.Begin()
 	if err != nil {
@@ -608,6 +610,42 @@ func TestValidateFailsOnceTheCachesAreRetired(t *testing.T) {
 	}
 }
 
+// Radar publishes its typed cache before its dynamic cache and discovery, so a
+// session can begin without them; their arrival replaces nothing it read.
+func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
+	f := newFixture(t, k8score.CacheConfig{}, nil)
+	f.watch(t, widgets)
+	current := Caches{Typed: f.caches.Typed}
+	source := New(func() Caches { return current })
+	s := begin(t, source)
+	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Unavailable {
+		t.Fatalf("Widget before the dynamic cache and discovery = %v", got.State)
+	}
+	current = f.caches
+	if err := s.Validate(); err != nil {
+		t.Fatalf("Validate once the dynamic cache and discovery arrive = %v, want nil", err)
+	}
+
+	other := newFixture(t, k8score.CacheConfig{}, nil)
+	s = begin(t, source)
+	current.Dynamic = other.caches.Dynamic
+	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+		t.Fatalf("after the dynamic cache was replaced: %v, want ErrCachesReplaced", err)
+	}
+	current = f.caches
+	s = begin(t, source)
+	current.Discovery = other.caches.Discovery
+	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+		t.Fatalf("after discovery was replaced: %v, want ErrCachesReplaced", err)
+	}
+	current = f.caches
+	s = begin(t, source)
+	current.Dynamic = nil
+	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+		t.Fatalf("after the dynamic cache went away: %v, want ErrCachesReplaced", err)
+	}
+}
+
 func TestSessionDoesNoIO(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, nil)
 	f.watch(t, widgets)
@@ -690,14 +728,28 @@ func TestCatalogIsBuiltOncePerDiscoveryGeneration(t *testing.T) {
 
 func TestEveryTypedKindIsReadAtItsInformersVersion(t *testing.T) {
 	enabled := map[string]bool{}
+	var objects []runtime.Object
 	for _, kl := range k8score.AllKindListers() {
 		b, ok := typedKinds[resourceid.GroupKind{Group: kl.Group(), Kind: kl.Kind()}]
 		if !ok || b.Version == "" {
 			t.Fatalf("typed kind %s/%s has no built-in with a version", kl.Group(), kl.Kind())
 		}
 		enabled[b.Resource] = true
+		obj, err := clientscheme.Scheme.New(schema.GroupVersionKind{Group: b.Group, Version: b.Version, Kind: b.Kind})
+		if err != nil {
+			t.Fatalf("%s: %v", b.Kind, err)
+		}
+		m, err := apimeta.Accessor(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SetName("probe")
+		if b.Namespaced {
+			m.SetNamespace("alpha")
+		}
+		objects = append(objects, obj)
 	}
-	rc, err := k8score.NewResourceCache(k8score.CacheConfig{Client: fake.NewClientset(), ResourceTypes: enabled})
+	rc, err := k8score.NewResourceCache(k8score.CacheConfig{Client: fake.NewClientset(objects...), ResourceTypes: enabled})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,6 +765,35 @@ func TestEveryTypedKindIsReadAtItsInformersVersion(t *testing.T) {
 	}
 	if len(keys) != len(typedKinds) {
 		t.Fatalf("%d typed informers for %d typed kinds", len(keys), len(typedKinds))
+	}
+	// An object created at the built-in's version reaches the store only if
+	// the informer lists that version, and the store must hold that version's
+	// type: the session reports the built-in's version as the object's.
+	for _, b := range typedKinds {
+		namespace := ""
+		if b.Namespaced {
+			namespace = "alpha"
+		}
+		waitUntil(t, b.Kind+"'s store", func() bool {
+			_, _, ok := rc.ReadableObject(b.Resource, namespace, "probe")
+			return ok
+		})
+		obj, found, _ := rc.ReadableObject(b.Resource, namespace, "probe")
+		if !found {
+			t.Errorf("%s created at %s isn't in its store: the informer lists another version", b.Kind, b.APIVersion())
+			continue
+		}
+		gvks, _, err := clientscheme.Scheme.ObjectKinds(obj)
+		if err != nil || !slices.Contains(gvks, schema.GroupVersionKind{Group: b.Group, Version: b.Version, Kind: b.Kind}) {
+			t.Errorf("%s's store holds %T (%v); the session reports it at %s", b.Kind, obj, gvks, b.APIVersion())
+		}
+		if ownership.IsEvent(b.GroupKind()) {
+			continue
+		}
+		got := begin(t, New(func() Caches { return Caches{Typed: rc} })).Object(ref(b.Group, b.Kind, namespace, "probe"))
+		if got.State != ownership.Present || got.Object.APIVersion != b.APIVersion() {
+			t.Errorf("%s = %v at %q; want present at %s", b.Kind, got.State, got.Object.APIVersion, b.APIVersion())
+		}
 	}
 }
 
@@ -968,38 +1049,90 @@ func TestOwnerCandidatesNeedVersionsToAgreeOnTheUpdate(t *testing.T) {
 	}
 }
 
-// When no watched version answers, a version watched where the read is says
-// why: v1 watched only in alpha says nothing about beta, while v1beta1's
-// cluster-wide watch is loading and a retry gets its answer.
-func TestObjectNoVersionAnsweredSaysWhyFromTheVersionWatchingIt(t *testing.T) {
+// A version left unread because nothing watched it may come to be watched in
+// the read's namespace alone, as when its cluster-wide list is refused; it
+// refuses the session as a cluster-wide watch would.
+func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatchedInItsNamespace(t *testing.T) {
 	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	var betaLists atomic.Int32
 	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"})
+			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
+			widget("alpha", "w1", "uid-widget"), betaWidget(widget("alpha", "w1", "uid-widget")))
 		f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
-			switch {
-			case a.GetResource().Version == "v1" && a.GetNamespace() == "":
-				return true, nil, apierrors.NewForbidden(widgets.GroupResource(), "", errors.New("cluster-wide list denied"))
-			case a.GetResource().Version == "v1beta1" && betaLists.Add(1) > 1:
-				// The first list is the watch's access probe.
-				return true, nil, errors.New("initial list held")
+			if a.GetResource().Version == "v1beta1" && a.GetNamespace() == "" {
+				return true, nil, apierrors.NewForbidden(beta.GroupResource(), "", errors.New("cluster-wide list denied"))
 			}
 			return false, nil, nil
 		})
 	})
-	if _, err := f.caches.Dynamic.List(widgets, "alpha"); err != nil {
+	f.watch(t, widgets)
+	s := begin(t, f.source())
+	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
+		t.Fatalf("Widget = %v %+v", got.State, got.Gap)
+	}
+	if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
 		t.Fatal(err)
 	}
-	waitUntil(t, "alpha's v1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(widgets, "alpha") })
-	if err := f.caches.Dynamic.EnsureWatching(beta); err != nil {
-		t.Fatal(err)
+	waitUntil(t, "alpha's v1beta1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(beta, "alpha") })
+	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("Validate = %v; want ErrStoreReplaced once v1beta1 serves alpha", err)
 	}
-	r := ref("example.io", "Widget", "beta", "w1")
-	got := begin(t, f.source()).Object(r)
-	want := ownership.Gap{Kind: r.GroupKind(), Namespace: "beta", Reason: readreason.KindSyncPending}
-	if got.State != ownership.Unavailable || got.Gap != want {
-		t.Fatalf("%v = %v %+v; want unavailable %+v", r, got.State, got.Gap, want)
+}
+
+// When no watched version answers, a version watched where the read is says
+// why: v1 watched only in alpha says nothing about beta, while v1beta1's
+// cluster-wide watch is loading, so a retry gets its answer, or has stalled.
+func TestObjectNoVersionAnsweredSaysWhyFromTheVersionWatchingIt(t *testing.T) {
+	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
+	for _, tc := range []struct {
+		name       string
+		stallAfter time.Duration
+		want       readreason.Code
+	}{
+		{"loading", 0, readreason.KindSyncPending},
+		{"stalled", time.Millisecond, readreason.KindSyncTimedOut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var betaLists atomic.Int32
+			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
+				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+					map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"})
+				f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+					switch {
+					case a.GetResource().Version == "v1" && a.GetNamespace() == "":
+						return true, nil, apierrors.NewForbidden(widgets.GroupResource(), "", errors.New("cluster-wide list denied"))
+					case a.GetResource().Version == "v1beta1" && betaLists.Add(1) > 1:
+						// The first list is the watch's access probe.
+						return true, nil, errors.New("initial list held")
+					}
+					return false, nil, nil
+				})
+			})
+			if tc.stallAfter > 0 {
+				dyn, err := k8score.NewDynamicResourceCache(k8score.DynamicCacheConfig{DynamicClient: f.dynamic, Discovery: f.caches.Discovery, SyncStallAfter: tc.stallAfter})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(dyn.Stop)
+				f.caches.Dynamic = dyn
+			}
+			if _, err := f.caches.Dynamic.List(widgets, "alpha"); err != nil {
+				t.Fatal(err)
+			}
+			waitUntil(t, "alpha's v1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(widgets, "alpha") })
+			if err := f.caches.Dynamic.EnsureWatching(beta); err != nil {
+				t.Fatal(err)
+			}
+			r := ref("example.io", "Widget", "beta", "w1")
+			want := ownership.Gap{Kind: r.GroupKind(), Namespace: "beta", Reason: tc.want}
+			if tc.stallAfter > 0 {
+				waitUntil(t, "v1beta1's stalled load", func() bool { return begin(t, f.source()).Object(r).Gap == want })
+			}
+			got := begin(t, f.source()).Object(r)
+			if got.State != ownership.Unavailable || got.Gap != want {
+				t.Fatalf("%v = %v %+v; want unavailable %+v", r, got.State, got.Gap, want)
+			}
+		})
 	}
 }
 
@@ -1099,8 +1232,8 @@ func TestViewWithoutTheDynamicCacheAnswers(t *testing.T) {
 	}
 }
 
-// A connection without discovery still reads its typed kinds; only kinds that
-// need discovery's catalog are unknown.
+// A connection without discovery still reads its typed kinds; kinds that need
+// discovery's catalog can't be read, and none is called unserved.
 func TestBeginWithoutDiscoveryReadsTypedKinds(t *testing.T) {
 	f := newFixture(t, k8score.CacheConfig{}, nil)
 	s, err := New(func() Caches { return Caches{Typed: f.caches.Typed} }).Begin()
@@ -1110,8 +1243,8 @@ func TestBeginWithoutDiscoveryReadsTypedKinds(t *testing.T) {
 	if got := s.Object(ref("apps", "ReplicaSet", "alpha", "web-1")); got.State != ownership.Present {
 		t.Fatalf("ReplicaSet without discovery = %v %+v", got.State, got.Gap)
 	}
-	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Unavailable || got.Gap.Reason != readreason.KindUnknown {
-		t.Fatalf("Widget without discovery = %v %+v; want kind_unknown", got.State, got.Gap)
+	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Unavailable || got.Gap.Reason != readreason.ReadError {
+		t.Fatalf("Widget without discovery = %v %+v; want read_error", got.State, got.Gap)
 	}
 	if s.Catalog().Complete() {
 		t.Fatal("no discovery can't be a complete catalog")

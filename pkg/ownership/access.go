@@ -19,7 +19,14 @@ const (
 )
 
 func (d Decision) String() string {
-	return [...]string{"denied", "allowed", "undecided"}[d]
+	switch d {
+	case Allowed:
+		return "allowed"
+	case Undecided:
+		return "undecided"
+	default:
+		return "denied"
+	}
 }
 
 // Access is what one caller may read. A View names only objects the caller

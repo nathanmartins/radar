@@ -50,8 +50,8 @@ func TestCatalogKeepsEveryServedVersionWithoutRefreshing(t *testing.T) {
 	if want := []string{"example.io/v1/widgets", "example.io/v1beta1/widgets"}; !slices.Equal(versions, want) {
 		t.Fatalf("catalog resources = %v, want %v (every served version, no subresources)", versions, want)
 	}
-	if c.Generation != 1 || !c.Complete || c.Partial || c.FailedGroups != nil {
-		t.Fatalf("catalog = generation %d, complete %v, partial %v, failed %v; want generation 1, complete", c.Generation, c.Complete, c.Partial, c.FailedGroups)
+	if c.Generation != 1 || !c.Complete {
+		t.Fatalf("catalog = generation %d, complete %v; want generation 1, complete", c.Generation, c.Complete)
 	}
 	c.Resources[0].Kind = "Changed"
 	if d.Catalog().Resources[0].Kind != "Widget" {
@@ -104,8 +104,8 @@ func TestCatalogGenerationCountsOnlyChangesToResources(t *testing.T) {
 		{Group: "metrics.k8s.io", Version: "v1beta1"}: errors.New("service unavailable"),
 	}}
 	_ = d.Refresh()
-	if c := d.Catalog(); c.Generation != 4 || c.Complete || !c.Partial || !slices.Equal(c.FailedGroups, []string{"metrics.k8s.io"}) {
-		t.Fatalf("partial refresh: generation %d, complete %v, partial %v, failed %v", c.Generation, c.Complete, c.Partial, c.FailedGroups)
+	if c := d.Catalog(); c.Generation != 4 || c.Complete {
+		t.Fatalf("partial refresh: generation %d, complete %v", c.Generation, c.Complete)
 	}
 
 	// Any error alongside resources leaves the answer incomplete, whatever its

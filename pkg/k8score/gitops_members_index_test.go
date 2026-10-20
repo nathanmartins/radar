@@ -198,9 +198,9 @@ func BenchmarkMembersIndexUpdate(b *testing.B) {
 	}
 }
 
-// interleavingIndexer counts reads of one key at a time and, at the first,
-// moves its manager from one key to another, as an update landing between two
-// such reads would.
+// interleavingIndexer counts index reads and, after the first, moves its
+// manager from one key to another, as an update landing between two reads
+// would.
 type interleavingIndexer struct {
 	cache.Indexer
 	next  *unstructured.Unstructured
@@ -209,10 +209,20 @@ type interleavingIndexer struct {
 
 func (i *interleavingIndexer) ByIndex(index, key string) ([]any, error) {
 	hits, err := i.Indexer.ByIndex(index, key)
+	i.read()
+	return hits, err
+}
+
+func (i *interleavingIndexer) Index(index string, obj any) ([]any, error) {
+	hits, err := i.Indexer.Index(index, obj)
+	i.read()
+	return hits, err
+}
+
+func (i *interleavingIndexer) read() {
 	if i.reads++; i.reads == 1 {
 		_ = i.Indexer.Update(i.next)
 	}
-	return hits, err
 }
 
 type syncedInformer struct {
@@ -238,8 +248,8 @@ func TestReadableIndexedReadsItsKeysTogether(t *testing.T) {
 	if !ok || len(objs) != 1 {
 		t.Fatalf("found %v (ok %v); the manager moved between keys and was lost", objs, ok)
 	}
-	if interleaving.reads != 0 {
-		t.Fatalf("%d reads of one key at a time", interleaving.reads)
+	if interleaving.reads != 1 {
+		t.Fatalf("%d index reads; the keys must be read in one", interleaving.reads)
 	}
 }
 

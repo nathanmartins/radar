@@ -16,9 +16,6 @@ type DiscoveryCatalog struct {
 	// so a kind absent from them wasn't served when it ran. Resources added
 	// without such a request never make a catalog complete.
 	Complete bool
-	// Partial: the last discovery request missed the groups in FailedGroups.
-	Partial      bool
-	FailedGroups []string
 }
 
 // Catalog returns the current discovery generation without refreshing it.
@@ -28,12 +25,7 @@ func (d *ResourceDiscovery) Catalog() DiscoveryCatalog {
 	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	c := DiscoveryCatalog{Resources: slices.Clone(d.resources), Generation: d.generation, Complete: d.complete, Partial: d.partial}
-	for group := range d.failedGroup {
-		c.FailedGroups = append(c.FailedGroups, group)
-	}
-	slices.Sort(c.FailedGroups)
-	return c
+	return DiscoveryCatalog{Resources: slices.Clone(d.resources), Generation: d.generation, Complete: d.complete}
 }
 
 // Generation returns the generation Catalog would return, without copying it.

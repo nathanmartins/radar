@@ -373,6 +373,62 @@ func TestOwnerCandidatesFromPagedInformers(t *testing.T) {
 	}
 }
 
+// A typed kind whose load missed its deadline may still finish: a search says
+// its load is overdue, not that it is still loading.
+func TestOwnerCandidatesOfATypedKindPastItsLoadDeadline(t *testing.T) {
+	f := newFixture(t, k8score.CacheConfig{
+		ResourceTypes:       map[string]bool{k8score.Pods: true, k8score.Secrets: true},
+		DeferredTypes:       map[string]bool{k8score.Secrets: true},
+		DeferredSyncTimeout: 50 * time.Millisecond,
+	}, func(f *fixture) {
+		f.typed.PrependReactor("list", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("initial list held")
+		})
+	})
+	waitUntil(t, "the Secrets load deadline", func() bool {
+		return f.caches.Typed.KindReadinessFor(k8score.Secrets) == k8score.KindFailed
+	})
+	secret := resourceid.GroupKind{Kind: "Secret"}
+	for _, domain := range []ownership.Domain{ownership.Everywhere(), ownership.InNamespace("alpha")} {
+		got := begin(t, f.source()).OwnerCandidates("uid-deploy", domain, 0)
+		namespace := ""
+		if !domain.AllNamespaces {
+			namespace = "alpha"
+		}
+		if want := (ownership.Gap{Kind: secret, Namespace: namespace, Reason: readreason.KindSyncTimedOut}); !slices.Contains(got.Gaps, want) {
+			t.Errorf("%+v: gaps %+v; want %+v", domain, got.Gaps, want)
+		}
+	}
+}
+
+// A kind Radar doesn't collect is unread in every namespace a search names, for
+// one reason, so the search says so once: a caller who may read a hundred
+// namespaces asking about a cluster-scoped owner gets the gaps a caller who
+// may read one gets, not a hundred times as many.
+func TestOwnerCandidatesReportAWholeKindsStateOnce(t *testing.T) {
+	f := newFixture(t, k8score.CacheConfig{}, nil)
+	s := begin(t, f.source())
+	search := func(n int) ownership.CandidateRead {
+		var namespaces []string
+		for i := range n {
+			namespaces = append(namespaces, fmt.Sprintf("ns-%03d", i))
+		}
+		return s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: namespaces, ClusterScoped: true}, 0)
+	}
+	one, hundred := search(1), search(100)
+	gadget := resourceid.GroupKind{Group: "example.io", Kind: "Gadget"}
+	want := ownership.Gap{Kind: gadget, Reason: readreason.RadarKindNotCollected}
+	if !slices.Contains(one.Gaps, want) {
+		t.Fatalf("gaps %+v; want %+v for the Gadgets nothing watches", one.Gaps, want)
+	}
+	if !slices.Equal(hundred.Gaps, one.Gaps) {
+		t.Fatalf("a search of 100 namespaces has %d gaps, one of a single namespace %d: %+v", len(hundred.Gaps), len(one.Gaps), hundred.Gaps)
+	}
+	if got := s.OwnerCandidates("uid-node", ownership.Domain{Namespaces: []string{""}}, 0); slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == gadget }) {
+		t.Fatalf("a domain naming no namespace has gaps %+v; it looked nowhere", got.Gaps)
+	}
+}
+
 // A cluster-wide store serves every namespace, so a search of many namespaces
 // reads it once: the work follows the owner's dependents plus the namespaces
 // asked about, not their product, and the session records the one store.

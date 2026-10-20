@@ -554,3 +554,100 @@ func TestViewValidateRefusesAnObjectAnotherSearchFindsAdopted(t *testing.T) {
 		t.Errorf("Validate = %v; want ErrObjectsChanged", err)
 	}
 }
+
+// A reference the view couldn't resolve leaves no kind unsearched, so it
+// excuses no object adopted after the owner's search: a Widget naming w at a
+// version discovery doesn't list doesn't hide another Widget adopted later.
+func TestViewAnUnresolvedReferenceExcusesNoAdoption(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	w := b.Add("example.io", "Widget", "alpha", "w")
+	unserved := w.OwnerRef(false)
+	unserved.APIVersion = "example.io/v9"
+	b.Add("batch", "Job", "alpha", "j", unserved)
+	late := b.Add("example.io", "Widget", "alpha", "late")
+	after := b.World()
+	after.Objects = slices.Clone(after.Objects)
+	for i := range after.Objects {
+		if after.Objects[i].Ref == late.Ref {
+			after.Objects[i].Owners = []metav1.OwnerReference{w.OwnerRef(true)}
+		}
+	}
+	s := newCountingSession(t, b.World())
+	later, err := ownershiptest.Scan(after).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.later, s.switchAt = later, "OwnerCandidates"
+	v := ownership.NewView(s, ownership.Unrestricted())
+	v.Children(w.Ref, 0)
+	if o := v.Owner(late.Ref); o.Resolution.State != ownership.OwnerFound {
+		t.Fatalf("scenario: late must name w, got %v", o.Resolution.State)
+	}
+	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Fatalf("Validate = %v; want ErrObjectsChanged", err)
+	}
+}
+
+// phased serves each read from the session its phase names, moving on after
+// each Object or OwnerCandidates call.
+type phased struct {
+	phases []ownership.Session
+	i      int
+}
+
+func (p *phased) cur() ownership.Session      { return p.phases[min(p.i, len(p.phases)-1)] }
+func (p *phased) Catalog() *ownership.Catalog { return p.cur().Catalog() }
+func (p *phased) Validate() error             { return nil }
+func (p *phased) Inventory(r resourceid.Ref) ownership.InventoryRead {
+	return p.cur().Inventory(r)
+}
+func (p *phased) Recorders(r resourceid.Ref) ownership.RecorderRead {
+	return p.cur().Recorders(r)
+}
+func (p *phased) Object(r resourceid.Ref) ownership.ObjectRead {
+	defer func() { p.i++ }()
+	return p.cur().Object(r)
+}
+func (p *phased) OwnerCandidates(u types.UID, d ownership.Domain, l int) ownership.CandidateRead {
+	defer func() { p.i++ }()
+	return p.cur().OwnerCandidates(u, d, l)
+}
+
+// A Pod the view read while Pods loaded, which the owner's search then found,
+// is a gap of that one object: it excuses no other Pod in the namespace the
+// search read in full, adopted after the search.
+func TestViewAnUnreadObjectExcusesNoOtherAdoption(t *testing.T) {
+	b := ownershiptest.NewBuilder()
+	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
+	p1 := b.Add("", "Pod", "alpha", "p1", rs.OwnerRef(true))
+	q := b.Add("", "Pod", "alpha", "q")
+	loading, loaded, adopted := b.World(), b.World(), b.World()
+	loading.Collection[pods] = ownershiptest.Collection{State: ownershiptest.Loading}
+	adopted.Objects = slices.Clone(adopted.Objects)
+	for i := range adopted.Objects {
+		if adopted.Objects[i].Ref == q.Ref {
+			adopted.Objects[i].Owners = []metav1.OwnerReference{rs.OwnerRef(true)}
+		}
+	}
+	var sessions []ownership.Session
+	// p1 is read while Pods load; the ReplicaSet and the search see them
+	// loaded; q is read after its adoption.
+	for _, w := range []ownershiptest.World{loading, loaded, loaded, adopted} {
+		s, err := ownershiptest.Scan(w).Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, s)
+	}
+	v := ownership.NewView(&phased{phases: sessions}, ownership.Unrestricted())
+	if got := v.Owner(p1.Ref); got.Subject.Read.State != ownership.Unavailable {
+		t.Fatalf("scenario: p1 must read unavailable, got %v", got.Subject.Read.State)
+	}
+	v.Children(rs.Ref, 0)
+	if o := v.Owner(q.Ref); o.Resolution.State != ownership.OwnerFound || o.Resolution.Ref != rs.Ref {
+		t.Fatalf("scenario: q must name the ReplicaSet, got %v %v", o.Resolution.State, o.Resolution.Ref)
+	}
+	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Fatalf("Validate = %v; q was adopted after a search that read alpha's Pods in full", err)
+	}
+}

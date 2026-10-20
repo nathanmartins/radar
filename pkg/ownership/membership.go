@@ -5,7 +5,10 @@ import "github.com/skyhook-io/radar/pkg/resourceid"
 // The GitOps managers whose status lists the objects they apply. A
 // HelmRelease from a helm-controller that predates status.inventory lists
 // nothing. A native Helm release keeps its manifest in a release Secret, which
-// Radar holds only as a digest; only the claims on its objects name it.
+// Radar holds only as a digest; only the claims on its objects name it. Other
+// kinds whose status lists what they apply, such as the Flux Operator's
+// ResourceSet and FluxInstance, or an Argo CD ApplicationSet's Applications,
+// aren't read.
 var (
 	ArgoApplication   = resourceid.GroupKind{Group: "argoproj.io", Kind: "Application"}
 	FluxKustomization = resourceid.GroupKind{Group: "kustomize.toolkit.fluxcd.io", Kind: "Kustomization"}
@@ -40,7 +43,14 @@ const (
 )
 
 func (m MembershipState) String() string {
-	return [...]string{"unreadable", "recorded", "remote"}[m]
+	switch m {
+	case MembersRecorded:
+		return "recorded"
+	case MembersRemote:
+		return "remote"
+	default:
+		return "unreadable"
+	}
 }
 
 // InventoryRead is one manager's member list.
@@ -79,10 +89,11 @@ type RecorderRead struct {
 	Gaps []Gap
 }
 
-// Complete reports whether Recorders are every manager recording the object
-// among those whose status this cluster stores. A manager running elsewhere,
-// such as a hub's Argo CD or a management cluster's Flux, is invisible here:
-// an object with no recorders may still be managed by GitOps.
+// Complete reports whether Recorders are every manager of the
+// RecordingManagers kinds recording the object among those whose status this
+// cluster stores. A manager of another kind, or one running elsewhere, such
+// as a hub's Argo CD or a management cluster's Flux, is invisible here: an
+// object with no recorders may still be managed by GitOps.
 func (r RecorderRead) Complete() bool {
 	return len(r.Gaps) == 0 && len(r.Elsewhere) == 0 && len(r.Unreadable) == 0
 }

@@ -80,21 +80,21 @@ func (s *session) OwnerCandidates(uid types.UID, domain ownership.Domain, limit 
 	return r
 }
 
-// gap records that kind in namespace went unread; "" stands for the whole kind
-// on an all-namespaces search, or the cluster for a cluster-scoped kind.
+// gap records that kind in namespace went unread; "" stands for the kind
+// wherever the search looked, or the cluster for a cluster-scoped kind.
 func (q *search) gap(gk resourceid.GroupKind, namespace string, reason readreason.Code) {
 	q.gaps = append(q.gaps, ownership.Gap{Kind: gk, Namespace: namespace, Reason: reason})
 }
 
-// gapEverywhere records that a kind went unread across the whole search.
+// gapEverywhere records that a kind went unread wherever the search looked,
+// for a reason of the whole kind, such as Radar not collecting it: one gap,
+// however many namespaces the search covers.
 func (q *search) gapEverywhere(gk resourceid.GroupKind, namespaced bool, reason readreason.Code) {
-	if !namespaced || q.domain.AllNamespaces {
-		q.gap(gk, "", reason)
+	if namespaced && !q.domain.AllNamespaces && len(q.namespaces) == 0 {
+		// The domain named no namespace to look in.
 		return
 	}
-	for _, ns := range q.namespaces {
-		q.gap(gk, ns, reason)
-	}
+	q.gap(gk, "", reason)
 }
 
 func (q *search) add(gk resourceid.GroupKind, apiVersion string, obj apiruntime.Object, namespace, name string) {

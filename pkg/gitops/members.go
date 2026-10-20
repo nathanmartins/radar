@@ -76,9 +76,13 @@ func argoMembers(app *unstructured.Unstructured, collect bool) (list MemberList,
 
 // FluxMembers reads a Kustomization's or HelmRelease's status.inventory. ok is
 // false when there is no inventory, an entry's ID doesn't parse, or the
-// controller hasn't observed the current spec, as while the object is
-// suspended: Flux records no destination with its inventory, so one written
-// before a spec.kubeConfig change may list another cluster's objects.
+// controller hasn't observed the current spec, as before it reconciles a
+// change or after that reconcile fails: Flux records no destination with its
+// inventory, so one written before a spec.kubeConfig change may list another
+// cluster's objects. A suspended object's controller observes a new spec
+// without applying it (helm-controller always, kustomize-controller while the
+// object is Ready), so a destination changed while it is suspended isn't
+// noticed until it resumes.
 func FluxMembers(obj *unstructured.Unstructured) (MemberList, bool) {
 	return fluxMembers(obj, true)
 }
