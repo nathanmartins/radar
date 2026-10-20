@@ -95,18 +95,18 @@ describe('RelatedResourcesSection ownership', () => {
 
   it('says why no owner is named', () => {
     const cases: Array<[Relationships['ownership'], string]> = [
-      [{ ownerState: 'gone', ownerRef: rs, children: { complete: true } }, 'ReplicaSet web-7d9f8 no longer exists.'],
-      [{ ownerState: 'replaced', ownerRef: rs, children: { complete: true } }, 'ReplicaSet web-7d9f8 was deleted and recreated; this object names the earlier one.'],
-      [{ ownerState: 'unknown', ownerRef: rs, children: { complete: true } }, 'Couldn&#x27;t check ReplicaSet web-7d9f8.'],
+      [{ primaryOwnerState: 'gone', ownerRef: rs, children: { complete: true } }, 'ReplicaSet web-7d9f8 no longer exists.'],
+      [{ primaryOwnerState: 'replaced', ownerRef: rs, children: { complete: true } }, 'ReplicaSet web-7d9f8 was deleted and recreated; this object names the earlier one.'],
+      [{ primaryOwnerState: 'unknown', ownerRef: rs, children: { complete: true } }, 'Couldn&#x27;t check ReplicaSet web-7d9f8.'],
       [
-        { ownerState: 'unknown', ownerRef: { kind: 'Endpoints', namespace: 'shop', name: 'web' }, ownerReason: 'radar_kind_not_collected', children: { complete: true } },
+        { primaryOwnerState: 'unknown', ownerRef: { kind: 'Endpoints', namespace: 'shop', name: 'web' }, ownerReason: 'radar_kind_not_collected', children: { complete: true } },
         'Couldn&#x27;t check Endpoints web (Radar doesn&#x27;t collect it).',
       ],
-      [{ ownerState: 'withheld', children: { complete: true } }, 'Not visible to you.'],
-      [{ ownerState: 'unknown', children: { complete: true } }, 'Couldn&#x27;t check the owner it names.'],
-      [{ ownerState: 'gone', ownerRef: { kind: '', namespace: '', name: '' }, children: { complete: true } }, 'The owner it names no longer exists.'],
-      [{ ownerState: 'unresolvable', children: { complete: true } }, 'Its owner reference can&#x27;t be resolved in this cluster.'],
-      [{ ownerState: 'excluded', children: { complete: true } }, 'Its owner reference names an Event'],
+      [{ primaryOwnerState: 'withheld', children: { complete: true } }, 'Not visible to you.'],
+      [{ primaryOwnerState: 'unknown', children: { complete: true } }, 'Couldn&#x27;t check the owner it names.'],
+      [{ primaryOwnerState: 'gone', ownerRef: { kind: '', namespace: '', name: '' }, children: { complete: true } }, 'The owner it names no longer exists.'],
+      [{ primaryOwnerState: 'unresolvable', children: { complete: true } }, 'Its owner reference can&#x27;t be resolved in this cluster.'],
+      [{ primaryOwnerState: 'excluded', children: { complete: true } }, 'Its owner reference names an Event'],
     ]
     for (const [ownership, text] of cases) {
       const html = renderToString(<RelatedResourcesSection relationships={{ ownership }} />)
@@ -116,7 +116,7 @@ describe('RelatedResourcesSection ownership', () => {
   })
 
   it('lists several owners without a controller as owners', () => {
-    const html = renderToString(<RelatedResourcesSection relationships={{ owners: [rs, cm], ownership: { ownerState: 'several', children: { complete: true } } }} />)
+    const html = renderToString(<RelatedResourcesSection relationships={{ owners: [rs, cm], ownership: { primaryOwnerState: 'several', children: { complete: true } } }} />)
     expect(html).toContain('<span>Owners<!-- --> (2)</span>')
     expect(html).toContain('None of them is its controller.')
     expect(html).not.toContain('<span>Owner</span>')
@@ -124,24 +124,24 @@ describe('RelatedResourcesSection ownership', () => {
   })
 
   it('lists other owners beside a missing controller as also owned by', () => {
-    const html = renderToString(<RelatedResourcesSection relationships={{ owners: [cm], ownership: { ownerState: 'gone', ownerRef: rs, children: { complete: true } } }} />)
+    const html = renderToString(<RelatedResourcesSection relationships={{ owners: [cm], ownership: { primaryOwnerState: 'gone', ownerRef: rs, children: { complete: true } } }} />)
     expect(html).toContain('<span>Owner</span>')
     expect(html).toContain('ReplicaSet web-7d9f8 no longer exists.')
     expect(html).toContain('Also Owned By')
   })
 
   it('says why owner and children could not be read at all', () => {
-    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { changed: true, children: { complete: false } } }} />)).toContain(
+    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { subjectReplaced: true, children: { complete: false } } }} />)).toContain(
       'the object was deleted and recreated after it was opened',
     )
-    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailable: 'connection_changed', children: { complete: false } } }} />)).toContain(
+    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailableReason: 'connection_changed', children: { complete: false } } }} />)).toContain(
       'Owner and children couldn&#x27;t be read: Radar switched clusters meanwhile.',
     )
-    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailable: 'user_forbidden', children: { complete: false } } }} />)).toContain(
+    expect(renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailableReason: 'user_forbidden', children: { complete: false } } }} />)).toContain(
       'your access lets you open this object, but not list its kind here.',
     )
     for (const reason of ['object_not_found', 'read_error', 'cluster_disconnected']) {
-      const html = renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailable: reason, children: { complete: false } } }} />)
+      const html = renderToString(<RelatedResourcesSection relationships={{ ownership: { unavailableReason: reason, children: { complete: false } } }} />)
       expect(html).toContain('Owner and children couldn&#x27;t be read: ')
       expect(html).not.toContain('read: couldn')
     }
@@ -168,7 +168,7 @@ describe('RelatedResourcesSection ownership', () => {
 
   it('says why a GitOps manager\'s member list could not be read', () => {
     const unread = renderToString(
-      <RelatedResourcesSection relationships={{ ownership: { children: { complete: true }, manages: { membership: 'unreadable', unavailable: 'kind_sync_pending' } } }} />,
+      <RelatedResourcesSection relationships={{ ownership: { children: { complete: true }, manages: { membership: 'unreadable', unavailableReason: 'kind_sync_pending' } } }} />,
     )
     expect(unread).toContain('Manages')
     expect(unread).toContain('Couldn&#x27;t read the members its status records (still loading).')

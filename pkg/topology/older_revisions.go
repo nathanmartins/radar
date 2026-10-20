@@ -14,15 +14,15 @@ var revisionAnnotations = map[resourceid.GroupKind]string{
 	{Group: "argoproj.io", Kind: "Rollout"}: rollouts.RevisionAnnotation,
 }
 
-// SplitInactiveReplicaSets moves the ReplicaSets among rel's Children that only
-// keep rollback history into InactiveChildren: those that run no Pods, are
+// SplitOlderRevisions moves the ReplicaSets among rel's Children that only
+// keep rollback history into OlderRevisions: those that run no Pods, are
 // meant to run none, and aren't the owner's current revision. A Deployment
 // keeps up to ten old revisions, which would bury the ReplicaSet that runs its
 // Pods. owner and annotations are the object rel describes; only a Deployment
 // or an Argo Rollout that records its current revision splits. read returns a
 // child ReplicaSet and whether any Pod still names it as owner, Pods still
 // terminating included; a child it can't read (ok false) stays among Children.
-func SplitInactiveReplicaSets(rel *Relationships, owner resourceid.GroupKind, annotations map[string]string, read func(namespace, name string) (rs *appsv1.ReplicaSet, runsPods, ok bool)) {
+func SplitOlderRevisions(rel *Relationships, owner resourceid.GroupKind, annotations map[string]string, read func(namespace, name string) (rs *appsv1.ReplicaSet, runsPods, ok bool)) {
 	annotation := revisionAnnotations[owner]
 	current := annotations[annotation]
 	if rel == nil || annotation == "" || current == "" || read == nil {
@@ -32,7 +32,7 @@ func SplitInactiveReplicaSets(rel *Relationships, owner resourceid.GroupKind, an
 	for _, c := range rel.Children {
 		if c.Group == "apps" && c.Kind == "ReplicaSet" {
 			if rs, runsPods, ok := read(c.Namespace, c.Name); ok && !runsPods && inactiveReplicaSet(rs, annotation, current) {
-				rel.InactiveChildren = append(rel.InactiveChildren, c)
+				rel.OlderRevisions = append(rel.OlderRevisions, c)
 				continue
 			}
 		}

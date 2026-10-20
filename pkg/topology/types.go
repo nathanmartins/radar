@@ -474,10 +474,10 @@ type Relationships struct {
 	Owners     []ResourceRef `json:"owners,omitempty"`
 	Deployment *ResourceRef  `json:"deployment,omitempty"` // Grandparent Deployment (for Pods owned by ReplicaSets)
 	Children   []ResourceRef `json:"children,omitempty"`
-	// InactiveChildren are Children kept apart because they only keep
+	// OlderRevisions are Children kept apart because they only keep
 	// history: ReplicaSets that run no Pods and aren't their owner's current
-	// revision. See SplitInactiveReplicaSets.
-	InactiveChildren []ResourceRef `json:"inactiveChildren,omitempty"`
+	// revision. See SplitOlderRevisions.
+	OlderRevisions []ResourceRef `json:"olderRevisions,omitempty"`
 	// Managers and Manages are management without an owner reference: GitOps
 	// member lists, class bindings, spec and status references. They never
 	// mean garbage collection. Set only with Ownership.
@@ -572,13 +572,13 @@ type CascadeDeletePreview struct {
 // OwnershipCoverage says how complete a resource's owner-reference answers
 // are.
 type OwnershipCoverage struct {
-	// OwnerState is the state of the owner reference when Owner is empty:
+	// PrimaryOwnerState is the state of the owner reference when Owner is empty:
 	// "gone" or "replaced" when it names a deleted owner, "withheld" when the
 	// caller may not read the owner, "unknown", "unresolvable", "excluded"
 	// when it names an Event, or "several" when there are several references
 	// and none is a controller. Empty when there is no owner reference, or
 	// Owner is set.
-	OwnerState string `json:"ownerState,omitempty"`
+	PrimaryOwnerState string `json:"primaryOwnerState,omitempty"`
 	// OwnerRef is the owner the reference names when it is gone, replaced or
 	// unknown: the object's own metadata names it.
 	OwnerRef *ResourceRef `json:"ownerRef,omitempty"`
@@ -589,11 +589,11 @@ type OwnershipCoverage struct {
 	Children ChildrenCoverage `json:"children"`
 	// Manages is set for a GitOps manager whose status lists its members.
 	Manages *MembersCoverage `json:"manages,omitempty"`
-	// Changed: the object the answers are about was replaced after the one
+	// SubjectReplaced: the object the answers are about was replaced after the one
 	// this response shows was read, so there are none.
-	Changed bool `json:"changed,omitempty"`
-	// Unavailable is a reason code when Radar couldn't answer at all.
-	Unavailable string `json:"unavailable,omitempty"`
+	SubjectReplaced bool `json:"subjectReplaced,omitempty"`
+	// UnavailableReason is a reason code when Radar couldn't answer at all.
+	UnavailableReason string `json:"unavailableReason,omitempty"`
 }
 
 // ChildrenCoverage says how complete a resource's Children are.
@@ -626,9 +626,9 @@ type MembersCoverage struct {
 	// Membership is "recorded", "remote" (the members are another cluster's)
 	// or "unreadable" (the status lists none Radar can read).
 	Membership string `json:"membership"`
-	// Unavailable is a readreason code when the member list couldn't be read,
+	// UnavailableReason is a readreason code when the member list couldn't be read,
 	// as opposed to the status recording none.
-	Unavailable string `json:"unavailable,omitempty"`
+	UnavailableReason string `json:"unavailableReason,omitempty"`
 	// Missing members Radar doesn't hold, Withheld ones the caller may not
 	// read, Unknown ones Radar can't say whether it holds.
 	Missing  int `json:"missing,omitempty"`

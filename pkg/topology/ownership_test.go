@@ -80,7 +80,7 @@ func TestApplyOwnershipSortsManagesEdges(t *testing.T) {
 	if !slices.Equal(refsText(rel.Manages), []string{widget.String()}) {
 		t.Errorf("manages = %v; want the Widget only", refsText(rel.Manages))
 	}
-	if cov := rel.Ownership; cov == nil || !cov.Children.Complete || cov.OwnerState != "" {
+	if cov := rel.Ownership; cov == nil || !cov.Children.Complete || cov.PrimaryOwnerState != "" {
 		t.Errorf("coverage = %+v", cov)
 	}
 }
@@ -93,8 +93,8 @@ func TestApplyOwnershipKeepsStaleOwnershipOutOfManagement(t *testing.T) {
 	pod, old := idRef("", "Pod", "alpha", "replaced"), idRef("apps", "ReplicaSet", "alpha", "web-old")
 	rel := &Relationships{manageSources: []ResourceRef{refOf(old)}}
 	ApplyOwnership(rel, v, fetched(t, w, pod))
-	if rel.Owner != nil || rel.Ownership.OwnerState != "replaced" || len(rel.Managers) != 0 {
-		t.Errorf("owner %v state %q managers %v; want no owner, a replaced reference and no manager", rel.Owner, rel.Ownership.OwnerState, refsText(rel.Managers))
+	if rel.Owner != nil || rel.Ownership.PrimaryOwnerState != "replaced" || len(rel.Managers) != 0 {
+		t.Errorf("owner %v state %q managers %v; want no owner, a replaced reference and no manager", rel.Owner, rel.Ownership.PrimaryOwnerState, refsText(rel.Managers))
 	}
 	rel = &Relationships{manageTargets: []ResourceRef{refOf(pod)}}
 	ApplyOwnership(rel, v, fetched(t, w, old))
@@ -112,8 +112,8 @@ func TestApplyOwnershipKeepsAnUnmappedOwnerOutOfManagement(t *testing.T) {
 	job, widget := idRef("batch", "Job", "alpha", "j1"), idRef("example.io", "Widget", "alpha", "w1")
 	rel := &Relationships{manageSources: []ResourceRef{refOf(widget)}}
 	ApplyOwnership(rel, v, fetched(t, w, job))
-	if rel.Owner != nil || rel.Ownership.OwnerState != "unknown" || rel.Ownership.OwnerReason != string(readreason.KindUnknown) || len(rel.Managers) != 0 {
-		t.Errorf("owner %v state %q (%s) managers %v; want an unknown reference (kind_unknown) and no manager", rel.Owner, rel.Ownership.OwnerState, rel.Ownership.OwnerReason, refsText(rel.Managers))
+	if rel.Owner != nil || rel.Ownership.PrimaryOwnerState != "unknown" || rel.Ownership.OwnerReason != string(readreason.KindUnknown) || len(rel.Managers) != 0 {
+		t.Errorf("owner %v state %q (%s) managers %v; want an unknown reference (kind_unknown) and no manager", rel.Owner, rel.Ownership.PrimaryOwnerState, rel.Ownership.OwnerReason, refsText(rel.Managers))
 	}
 	rel = &Relationships{manageTargets: []ResourceRef{refOf(job)}}
 	ApplyOwnership(rel, v, fetched(t, w, widget))
@@ -137,8 +137,8 @@ func TestApplyOwnershipNeedsTheWholeChainToCallAnEdgeManagement(t *testing.T) {
 	if got := refsText(rel.Managers); !slices.Equal(got, []string{app.String()}) {
 		t.Errorf("managers while ReplicaSets load = %v; want only the Application", got)
 	}
-	if rel.Ownership.OwnerState != "unknown" || rel.Ownership.OwnerRef == nil || refIdentity(*rel.Ownership.OwnerRef) != idRef("apps", "ReplicaSet", "alpha", "web-1") {
-		t.Errorf("owner state %q ref %v; want the unknown ReplicaSet the Pod names", rel.Ownership.OwnerState, rel.Ownership.OwnerRef)
+	if rel.Ownership.PrimaryOwnerState != "unknown" || rel.Ownership.OwnerRef == nil || refIdentity(*rel.Ownership.OwnerRef) != idRef("apps", "ReplicaSet", "alpha", "web-1") {
+		t.Errorf("owner state %q ref %v; want the unknown ReplicaSet the Pod names", rel.Ownership.PrimaryOwnerState, rel.Ownership.OwnerRef)
 	}
 	if rel.Ownership.OwnerReason != string(readreason.KindSyncPending) {
 		t.Errorf("owner reason %q; want %q", rel.Ownership.OwnerReason, readreason.KindSyncPending)
@@ -255,7 +255,7 @@ func TestApplyOwnershipNamesAnOwnerItCouldNotResolve(t *testing.T) {
 	rel := &Relationships{}
 	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, pod.Ref))
 	want := ResourceRef{Group: "example.io", Kind: "Widget", Name: "parent"}
-	if rel.Ownership.OwnerState != "unknown" || rel.Ownership.OwnerRef == nil || *rel.Ownership.OwnerRef != want || rel.Ownership.OwnerReason == "" {
+	if rel.Ownership.PrimaryOwnerState != "unknown" || rel.Ownership.OwnerRef == nil || *rel.Ownership.OwnerRef != want || rel.Ownership.OwnerReason == "" {
 		t.Errorf("ownership = %+v ref %+v; want unknown, %+v, with a reason", rel.Ownership, rel.Ownership.OwnerRef, want)
 	}
 }
@@ -268,7 +268,7 @@ func TestApplyOwnershipSaysWhyAMemberListCouldNotBeRead(t *testing.T) {
 	w.Collection[app.GroupKind()] = ownershiptest.Collection{State: ownershiptest.NotCollected}
 	rel := &Relationships{}
 	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, app))
-	if m := rel.Ownership.Manages; m == nil || m.Membership != "unreadable" || m.Unavailable != string(readreason.RadarKindNotCollected) {
+	if m := rel.Ownership.Manages; m == nil || m.Membership != "unreadable" || m.UnavailableReason != string(readreason.RadarKindNotCollected) {
 		t.Errorf("manages coverage = %+v; want unreadable for %s", m, readreason.RadarKindNotCollected)
 	}
 }
@@ -311,8 +311,8 @@ func TestApplyOwnershipWithoutAnAnswer(t *testing.T) {
 		fetched ownership.Observation
 		check   func(*OwnershipCoverage) bool
 	}{
-		"the caller may not read it": {denyPods{}, fetched(t, w, pod), func(c *OwnershipCoverage) bool { return c.Unavailable == string(readreason.UserForbidden) }},
-		"it was recreated":           {ownership.Unrestricted(), recreated, func(c *OwnershipCoverage) bool { return c.Changed }},
+		"the caller may not read it": {denyPods{}, fetched(t, w, pod), func(c *OwnershipCoverage) bool { return c.UnavailableReason == string(readreason.UserForbidden) }},
+		"it was recreated":           {ownership.Unrestricted(), recreated, func(c *OwnershipCoverage) bool { return c.SubjectReplaced }},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rel := &Relationships{Owner: &ResourceRef{Kind: "Deployment"}, Children: []ResourceRef{{Kind: "Pod"}}, manageSources: []ResourceRef{{Kind: "Application"}}}
@@ -332,7 +332,7 @@ func TestApplyOwnershipForAKindRadarDoesNotCollect(t *testing.T) {
 	cm := idRef("", "ConfigMap", "alpha", "versioned")
 	rel := &Relationships{}
 	ApplyOwnership(rel, ownershipView(t, w, ownership.Unrestricted()), fetched(t, w, cm))
-	if rel.Owner == nil || refIdentity(*rel.Owner) != idRef("example.io", "Widget", "alpha", "w1") || rel.Ownership.Unavailable != "" {
+	if rel.Owner == nil || refIdentity(*rel.Owner) != idRef("example.io", "Widget", "alpha", "w1") || rel.Ownership.UnavailableReason != "" {
 		t.Fatalf("owner %v coverage %+v; want the Widget its reference names", rel.Owner, rel.Ownership)
 	}
 }
@@ -421,8 +421,8 @@ func TestApplyOwnerAnswersTheOwnerWithoutSearching(t *testing.T) {
 			t.Errorf("%v: owner coverage %+v, want %+v", o.Ref, got, want)
 			continue
 		}
-		if got != nil && (got.OwnerState != want.OwnerState || !reflect.DeepEqual(got.OwnerRef, want.OwnerRef) || got.OwnerReason != want.OwnerReason ||
-			got.Unavailable != want.Unavailable || got.Changed != want.Changed) {
+		if got != nil && (got.PrimaryOwnerState != want.PrimaryOwnerState || !reflect.DeepEqual(got.OwnerRef, want.OwnerRef) || got.OwnerReason != want.OwnerReason ||
+			got.UnavailableReason != want.UnavailableReason || got.SubjectReplaced != want.SubjectReplaced) {
 			t.Errorf("%v: owner coverage %+v, want %+v", o.Ref, got, want)
 		}
 	}

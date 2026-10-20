@@ -503,7 +503,7 @@
         {"kind": "Pod", "namespace": "shop", "name": "api-6b7-a"}
       ],
       "ownership": {
-        "ownerState": "replaced",
+        "primaryOwnerState": "replaced",
         "ownerRef": {"kind": "Deployment", "namespace": "shop", "name": "api", "group": "apps"},
         "children": {
           "complete": false,

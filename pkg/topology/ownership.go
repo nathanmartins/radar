@@ -22,7 +22,7 @@ const maxOwnershipRefs = 500
 //
 //   - Owner, Owners, Children and Deployment come from owner references, so
 //     they include objects the topology doesn't draw, such as grouped Pods and
-//     inactive ReplicaSets.
+//     older ReplicaSets.
 //   - Manages and Managers are the manages edges with evidence they are
 //     management, never an edge matching an owner reference or a display
 //     shortcut to or from an object on the controller chain; a GitOps
@@ -99,7 +99,7 @@ func ApplyOwnership(rel *Relationships, v *ownership.View, fetched ownership.Obs
 		cov.Manages = &MembersCoverage{Membership: members.Membership.String(), Missing: members.Missing, Withheld: members.Withheld, Unknown: members.Unknown}
 		if members.Membership == ownership.MembersUnreadable && len(members.Gaps) > 0 {
 			// The list couldn't be read, as opposed to the status having none.
-			cov.Manages.Unavailable = string(members.Gaps[0].Reason)
+			cov.Manages.UnavailableReason = string(members.Gaps[0].Reason)
 		}
 		switch members.Membership {
 		case ownership.MembersRecorded:
@@ -160,10 +160,10 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 	owner := v.Owner(fetched.Ref)
 	switch {
 	case owner.Subject.Access == ownership.Denied:
-		cov.Unavailable = string(readreason.UserForbidden)
+		cov.UnavailableReason = string(readreason.UserForbidden)
 		return cov, owner, false
 	case owner.Subject.Access == ownership.Undecided:
-		cov.Unavailable = string(readreason.UserPermissionCheckFailed)
+		cov.UnavailableReason = string(readreason.UserPermissionCheckFailed)
 		return cov, owner, false
 	case owner.Subject.Read.State == ownership.Excluded:
 		// Ownership doesn't read Events, so it says nothing of one.
@@ -172,21 +172,21 @@ func applyOwner(rel *Relationships, v *ownership.View, fetched ownership.Observa
 	case owner.Subject.Read.State != ownership.Present:
 		// Seed answers for an object the caches hold no copy of, so only an
 		// unavailable read is left.
-		cov.Unavailable = string(owner.Subject.Read.Gap.Reason)
+		cov.UnavailableReason = string(owner.Subject.Read.Gap.Reason)
 		return cov, owner, false
 	case owner.Subject.Read.Object.UID != fetched.UID:
-		cov.Changed = true
+		cov.SubjectReplaced = true
 		return cov, owner, false
 	}
 
 	switch {
 	case owner.Several:
-		cov.OwnerState = "several"
+		cov.PrimaryOwnerState = "several"
 	case owner.Reference != nil && owner.Resolution.State == ownership.OwnerFound:
 		ref := refOf(owner.Resolution.Ref)
 		rel.Owner = &ref
 	case owner.Reference != nil:
-		cov.OwnerState = owner.Resolution.State.String()
+		cov.PrimaryOwnerState = owner.Resolution.State.String()
 		switch owner.Resolution.State {
 		case ownership.OwnerGone, ownership.OwnerReplaced, ownership.OwnerUnknown:
 			// The object's own reference names it; the user can read that.
@@ -276,12 +276,12 @@ func namedOwner(owner ownership.OwnerAnswer) *ResourceRef {
 // with a readreason code saying why. No answer from manages edges stands in.
 func OwnershipUnavailable(rel *Relationships, reason string) {
 	if rel != nil {
-		clearOwnership(rel).Unavailable = reason
+		clearOwnership(rel).UnavailableReason = reason
 	}
 }
 
 func clearOwnership(rel *Relationships) *OwnershipCoverage {
-	rel.Owner, rel.Owners, rel.Deployment, rel.Children, rel.InactiveChildren, rel.Managers, rel.Manages = nil, nil, nil, nil, nil, nil, nil
+	rel.Owner, rel.Owners, rel.Deployment, rel.Children, rel.OlderRevisions, rel.Managers, rel.Manages = nil, nil, nil, nil, nil, nil, nil
 	rel.Ownership = &OwnershipCoverage{}
 	return rel.Ownership
 }

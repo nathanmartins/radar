@@ -260,10 +260,10 @@ func Build(ctx context.Context, obj runtime.Object, opts Options) *ResourceConte
 		// An ownership answer without an owner: say why, unless there is no
 		// owner to name (none referenced, or one that is gone).
 		switch {
-		case rel.Ownership.OwnerState == "withheld":
+		case rel.Ownership.PrimaryOwnerState == "withheld":
 			omitted.add("owner", OmittedRBACDenied)
-		case rel.Ownership.OwnerState == "unknown",
-			(rel.Ownership.Unavailable != "" || rel.Ownership.Changed) && ownerFromObject(obj, ident.Namespace) != nil:
+		case rel.Ownership.PrimaryOwnerState == "unknown",
+			(rel.Ownership.UnavailableReason != "" || rel.Ownership.SubjectReplaced) && ownerFromObject(obj, ident.Namespace) != nil:
 			omitted.add("owner", OmittedUnavailable)
 		}
 	} else if owner := ownerFromObject(obj, ident.Namespace); owner != nil && !answered {

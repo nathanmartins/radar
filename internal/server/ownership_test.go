@@ -104,8 +104,8 @@ func TestResourceGetAnswersOwnershipFromOwnerReferences(t *testing.T) {
 	}
 
 	deploy := get("/api/resources/deployments/default/nginx?group=apps")
-	if deploy.Owner != nil || deploy.Ownership.OwnerState != "" {
-		t.Errorf("Deployment owner = %+v (%q); it has no owner reference", deploy.Owner, deploy.Ownership.OwnerState)
+	if deploy.Owner != nil || deploy.Ownership.PrimaryOwnerState != "" {
+		t.Errorf("Deployment owner = %+v (%q); it has no owner reference", deploy.Owner, deploy.Ownership.PrimaryOwnerState)
 	}
 	if got := ownershipRefNames(deploy.Children); len(got) != 1 || got[0] != "ReplicaSet default/nginx-abc" {
 		t.Errorf("Deployment children = %v, want its ReplicaSet", got)

@@ -91,19 +91,19 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 			rel := &topology.Relationships{}
 			present := func(rel *topology.Relationships, _ *ownership.View, _ ownership.ReadSession) {
 				tc.source.calls = append(tc.source.calls, "present")
-				rel.InactiveChildren = append(rel.InactiveChildren, topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "alpha", Name: "old"})
+				rel.OlderRevisions = append(rel.OlderRevisions, topology.ResourceRef{Group: "apps", Kind: "ReplicaSet", Namespace: "alpha", Name: "old"})
 			}
 			answerOwnership(tc.source, topology.ApplyOwnership, present, rel, fetched, unrestricted)
 			if want := slices.Repeat([]string{"present", "validate"}, tc.begun); !slices.Equal(tc.source.calls, want) {
 				t.Errorf("calls %v, want %v: each answer is presented before it is validated", tc.source.calls, want)
 			}
-			if wantInactive := map[bool]int{true: 1, false: 0}[tc.unavailable == ""]; len(rel.InactiveChildren) != wantInactive {
-				t.Errorf("inactive children %v; a refused answer keeps none, a retried one only its last", rel.InactiveChildren)
+			if wantInactive := map[bool]int{true: 1, false: 0}[tc.unavailable == ""]; len(rel.OlderRevisions) != wantInactive {
+				t.Errorf("inactive children %v; a refused answer keeps none, a retried one only its last", rel.OlderRevisions)
 			}
 			if tc.source.begun != tc.begun {
 				t.Errorf("began %d sessions, want %d", tc.source.begun, tc.begun)
 			}
-			if rel.Ownership == nil || rel.Ownership.Unavailable != string(tc.unavailable) {
+			if rel.Ownership == nil || rel.Ownership.UnavailableReason != string(tc.unavailable) {
 				t.Fatalf("ownership = %+v, want unavailable %q", rel.Ownership, tc.unavailable)
 			}
 			if answered := rel.Owner != nil; answered != (tc.unavailable == "") {
@@ -174,7 +174,7 @@ func TestAnswerOwnershipWaitsForDiscovery(t *testing.T) {
 	for name, apply := range map[string]func(*topology.Relationships, *ownership.View, ownership.Observation){"full": topology.ApplyOwnership, "owner only": topology.ApplyOwner} {
 		rel := &topology.Relationships{}
 		answerOwnership(source, apply, nil, rel, ownership.Observe(subject, "apps/v1", deployment), unrestricted)
-		if rel.Ownership == nil || rel.Ownership.Unavailable != string(readreason.ClusterConnecting) || len(rel.Children) != 0 {
+		if rel.Ownership == nil || rel.Ownership.UnavailableReason != string(readreason.ClusterConnecting) || len(rel.Children) != 0 {
 			t.Errorf("%s: ownership %+v, children %v; want unavailable while discovery hasn't answered", name, rel.Ownership, rel.Children)
 		}
 	}
@@ -230,8 +230,8 @@ func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
 	if want := []topology.ResourceRef{historyChild("web-1"), historyChild("web-3")}; !slices.Equal(rel.Children, want) {
 		t.Errorf("children %v, want %v: the live revision and one still holding a Pod", rel.Children, want)
 	}
-	if want := []topology.ResourceRef{historyChild("web-2")}; !slices.Equal(rel.InactiveChildren, want) {
-		t.Errorf("inactive children %v, want %v", rel.InactiveChildren, want)
+	if want := []topology.ResourceRef{historyChild("web-2")}; !slices.Equal(rel.OlderRevisions, want) {
+		t.Errorf("inactive children %v, want %v", rel.OlderRevisions, want)
 	}
 
 	scripted, err := ownershiptest.Scan(ownershiptest.Fixture()).Begin()
@@ -240,8 +240,8 @@ func TestSplitHistoryReadsTheSessionsCache(t *testing.T) {
 	}
 	rel = &topology.Relationships{Children: []topology.ResourceRef{historyChild("web-2")}}
 	splitHistory(subject, deployment)(rel, ownership.NewView(scripted, ownership.Unrestricted()), scripted)
-	if len(rel.InactiveChildren) != 0 {
-		t.Errorf("a session over other caches moved %v; only the typed cache it reads can say", rel.InactiveChildren)
+	if len(rel.OlderRevisions) != 0 {
+		t.Errorf("a session over other caches moved %v; only the typed cache it reads can say", rel.OlderRevisions)
 	}
 }
 
@@ -283,8 +283,8 @@ func TestSplitHistoryJudgesTheReplicaSetTheViewCaptured(t *testing.T) {
 			}
 			rel := &topology.Relationships{}
 			answerOwnership(source, replaceAfterAnswering, splitHistory(subject, deployment), rel, ownership.Observe(subject, "apps/v1", deployment), func(*ownership.Catalog) ownership.Access { return ownership.Unrestricted() })
-			if len(rel.InactiveChildren) != 0 || !slices.Equal(rel.Children, []topology.ResourceRef{historyChild("web-3")}) {
-				t.Fatalf("children %v, inactive %v: the split judged the replacement, not the ReplicaSet the view captured", rel.Children, rel.InactiveChildren)
+			if len(rel.OlderRevisions) != 0 || !slices.Equal(rel.Children, []topology.ResourceRef{historyChild("web-3")}) {
+				t.Fatalf("children %v, inactive %v: the split judged the replacement, not the ReplicaSet the view captured", rel.Children, rel.OlderRevisions)
 			}
 		})
 	}

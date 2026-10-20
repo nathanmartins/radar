@@ -34,15 +34,11 @@ var ownershipSource = cachesource.New(func() cachesource.Caches {
 	return c
 })
 
-// OwnershipSource answers ownership questions from Radar's caches, without
-// API calls.
-func OwnershipSource() ownership.Source { return ownershipSource }
-
 // AnswerOwnership answers rel's ownership for fetched, the object the caller
 // fetched, from the caches, for the caller access describes once the
 // session's catalog is known. owner is the fetched object itself: when it is a
 // Deployment or an Argo Rollout, the ReplicaSets that only keep its rollback
-// history move to InactiveChildren, read from the answer's own caches so that
+// history move to OlderRevisions, read from the answer's own caches so that
 // a context switch refuses them with it. A store replaced during the read (a
 // cluster-wide watch taking over from namespace ones), or an object that
 // changed between the view's reads, is worth one more try; caches replaced or
@@ -52,7 +48,7 @@ func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation,
 }
 
 // splitHistory moves the ReplicaSets among rel's Children that only keep
-// subject's rollback history to InactiveChildren, reading them and the Pods
+// subject's rollback history to OlderRevisions, reading them and the Pods
 // still naming them through the typed cache the session reads. A ReplicaSet is
 // judged only as the incarnation the view captured as a child: one replaced
 // at its name since stays among Children.
@@ -67,7 +63,7 @@ func splitHistory(subject resourceid.Ref, owner metav1.Object) func(*topology.Re
 		// children, such as a DaemonSet's thousands of Pods, aren't gathered
 		// twice.
 		var captured map[resourceid.Ref]types.UID
-		topology.SplitInactiveReplicaSets(rel, subject.GroupKind(), owner.GetAnnotations(), func(namespace, name string) (*appsv1.ReplicaSet, bool, bool) {
+		topology.SplitOlderRevisions(rel, subject.GroupKind(), owner.GetAnnotations(), func(namespace, name string) (*appsv1.ReplicaSet, bool, bool) {
 			if captured == nil {
 				captured = map[resourceid.Ref]types.UID{}
 				for _, c := range v.Children(subject, 0).Children {

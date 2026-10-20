@@ -18,7 +18,7 @@ func replicaSetChild(name string) ResourceRef {
 // A Deployment's or Rollout's old revisions, which run no Pods, are kept apart
 // from the ReplicaSets that do, and from its current revision even at zero
 // replicas.
-func TestSplitInactiveReplicaSets(t *testing.T) {
+func TestSplitOlderRevisions(t *testing.T) {
 	const deploymentRevision = "deployment.kubernetes.io/revision"
 	deployment := resourceid.GroupKind{Group: "apps", Kind: "Deployment"}
 	rollout := resourceid.GroupKind{Group: "argoproj.io", Kind: "Rollout"}
@@ -84,7 +84,7 @@ func TestSplitInactiveReplicaSets(t *testing.T) {
 			for _, c := range tc.children {
 				rel.Children = append(rel.Children, replicaSetChild(c))
 			}
-			SplitInactiveReplicaSets(rel, tc.owner, tc.annotations, read)
+			SplitOlderRevisions(rel, tc.owner, tc.annotations, read)
 			want := []ResourceRef{pod}
 			for _, c := range tc.active {
 				want = append(want, replicaSetChild(c))
@@ -93,8 +93,8 @@ func TestSplitInactiveReplicaSets(t *testing.T) {
 			for _, c := range tc.inactive {
 				wantInactive = append(wantInactive, replicaSetChild(c))
 			}
-			if !slices.Equal(rel.Children, want) || !slices.Equal(rel.InactiveChildren, wantInactive) {
-				t.Errorf("children %v inactive %v; want %v and %v", rel.Children, rel.InactiveChildren, want, wantInactive)
+			if !slices.Equal(rel.Children, want) || !slices.Equal(rel.OlderRevisions, wantInactive) {
+				t.Errorf("children %v inactive %v; want %v and %v", rel.Children, rel.OlderRevisions, want, wantInactive)
 			}
 		})
 	}

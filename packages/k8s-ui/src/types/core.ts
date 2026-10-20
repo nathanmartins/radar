@@ -657,7 +657,7 @@ export interface Relationships {
   children?: ResourceRef[]   // Objects whose owner references name this one
   // Children kept apart because they only keep history: ReplicaSets that run
   // no Pods and aren't their owner's current revision.
-  inactiveChildren?: ResourceRef[]
+  olderRevisions?: ResourceRef[]
   // Management without an owner reference: GitOps member lists, class
   // bindings, spec and status references. Never ownership or garbage collection.
   managers?: ResourceRef[]
@@ -701,7 +701,7 @@ export interface OwnershipGap {
 
 export interface OwnershipCoverage {
   /** The owner reference's state when no owner is named: gone, replaced, withheld, unknown, unresolvable, excluded (it names an Event) or several. */
-  ownerState?: string
+  primaryOwnerState?: string
   /** The owner the reference names when it is gone, replaced or unknown. */
   ownerRef?: ResourceRef
   /** A readreason code saying why an unknown owner couldn't be checked. */
@@ -718,16 +718,16 @@ export interface OwnershipCoverage {
   manages?: {
     membership: 'recorded' | 'remote' | 'unreadable'
     /** A readreason code when the member list couldn't be read, as opposed to the status recording none. */
-    unavailable?: string
+    unavailableReason?: string
     missing?: number
     withheld?: number
     unknown?: number
     truncated?: boolean
   }
   /** The object was replaced after it was read, so there are no answers. */
-  changed?: boolean
+  subjectReplaced?: boolean
   /** A readreason code when Radar couldn't answer at all. */
-  unavailable?: string
+  unavailableReason?: string
 }
 
 // Parsed X.509 certificate metadata (from backend cert parsing)

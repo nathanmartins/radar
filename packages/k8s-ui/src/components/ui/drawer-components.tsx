@@ -833,7 +833,7 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
   const alsoOwnedBy = omitResourceRefs(relationships.owners ?? [], relationships.owner ? [relationships.owner] : [])
   const managesNote = membersNote(relationships.ownership?.manages, (relationships.manages?.length ?? 0) > 0)
   const unanswered = ownershipUnanswered(relationships.ownership)
-  const several = !relationships.owner && relationships.ownership?.ownerState === 'several'
+  const several = !relationships.owner && relationships.ownership?.primaryOwnerState === 'several'
   const ownerMissing = relationships.owner || several ? undefined : ownerNote(relationships.ownership)
   const childrenCoverage = childrenNote(relationships.ownership)
 
@@ -843,7 +843,7 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
     ownerMissing ||
     several ||
     childrenCoverage?.text ||
-    (relationships.inactiveChildren && relationships.inactiveChildren.length > 0) ||
+    (relationships.olderRevisions && relationships.olderRevisions.length > 0) ||
     alsoOwnedBy.length > 0 ||
     (relationships.managers && relationships.managers.length > 0) ||
     (relationships.manages && relationships.manages.length > 0) ||
@@ -900,13 +900,13 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
         {relationships.node && (
           <RelationshipGroup label="Node" refs={[relationships.node]} onNavigate={onNavigate} />
         )}
-        {((relationships.children && relationships.children.length > 0) || childrenCoverage?.text || (relationships.inactiveChildren && relationships.inactiveChildren.length > 0)) && (
+        {((relationships.children && relationships.children.length > 0) || childrenCoverage?.text || (relationships.olderRevisions && relationships.olderRevisions.length > 0)) && (
           <RelationshipGroup
             label="Children"
             refs={dedupeResourceRefs(relationships.children ?? [])}
             onNavigate={onNavigate}
             note={childrenCoverage}
-            more={inactiveChildren(relationships.inactiveChildren)}
+            more={olderRevisions(relationships.olderRevisions)}
           />
         )}
         {((relationships.manages && relationships.manages.length > 0) || managesNote) && (
@@ -985,8 +985,8 @@ export function RelatedResourcesSection({ relationships, onNavigate }: RelatedRe
 
 // ownershipUnanswered says why Owner and Children couldn't be answered at all.
 function ownershipUnanswered(coverage: OwnershipCoverage | undefined): string | undefined {
-  if (coverage?.changed) return "Owner and children aren't shown: the object was deleted and recreated after it was opened."
-  const reason = coverage?.unavailable
+  if (coverage?.subjectReplaced) return "Owner and children aren't shown: the object was deleted and recreated after it was opened."
+  const reason = coverage?.unavailableReason
   if (!reason) return undefined
   if (reason === 'user_forbidden') return "Owner and children aren't shown: your access lets you open this object, but not list its kind here."
   return `Owner and children couldn't be read: ${gapReasonText(reason)}.`
@@ -996,7 +996,7 @@ function ownershipUnanswered(coverage: OwnershipCoverage | undefined): string | 
 function ownerNote(coverage: OwnershipCoverage | undefined): RelationshipNote | undefined {
   const ref = coverage?.ownerRef
   const named = ref?.kind && ref.name ? `${ref.kind} ${ref.name}` : 'the owner it names'
-  switch (coverage?.ownerState) {
+  switch (coverage?.primaryOwnerState) {
     case 'gone':
       return { text: `${capitalize(named)} no longer exists.` }
     case 'replaced':
@@ -1096,11 +1096,11 @@ function membersNote(manages: OwnershipCoverage['manages'] | undefined, listed: 
   if (manages.membership === 'unreadable') {
     const note: RelationshipNote = {}
     const text: string[] = []
-    if (manages.unavailable) text.push(`Couldn't read the members its status records (${gapReasonText(manages.unavailable)}).`)
+    if (manages.unavailableReason) text.push(`Couldn't read the members its status records (${gapReasonText(manages.unavailableReason)}).`)
     if (manages.truncated) text.push('More members than shown.')
     if (text.length > 0) note.text = text.join(' ')
     if (listed) note.hint = ["Its status has no member list Radar can read now, so these are the resources the topology links to it."]
-    else if (!manages.unavailable) note.hint = ["Its status has no member list Radar can read now."]
+    else if (!manages.unavailableReason) note.hint = ["Its status has no member list Radar can read now."]
     return note
   }
   const extra: string[] = []
@@ -1137,10 +1137,10 @@ interface MoreRefs {
   hint: string
 }
 
-// inactiveChildren are the ReplicaSets the server keeps out of Children because
+// olderRevisions are the ReplicaSets the server keeps out of Children because
 // they only hold rollback history: listed there, ten of them would bury the
 // ones running Pods.
-function inactiveChildren(refs: ResourceRef[] | undefined): MoreRefs | undefined {
+function olderRevisions(refs: ResourceRef[] | undefined): MoreRefs | undefined {
   if (!refs || refs.length === 0) return undefined
   const unique = dedupeResourceRefs(refs)
   return {

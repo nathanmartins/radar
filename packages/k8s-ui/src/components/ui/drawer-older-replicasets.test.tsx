@@ -25,7 +25,7 @@ function mount(relationships: Relationships) {
 
 describe('older ReplicaSets', () => {
   it('lists the ReplicaSets running Pods, and the old revisions only on request', () => {
-    const el = mount({ children: [rs('web-7d4f')], inactiveChildren: [rs('web-5c9a'), rs('web-6b1e')] })
+    const el = mount({ children: [rs('web-7d4f')], olderRevisions: [rs('web-5c9a'), rs('web-6b1e')] })
     const toggle = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('older ReplicaSets'))
     expect(toggle?.textContent).toBe('Show 2 older ReplicaSets')
     expect(toggle?.getAttribute('aria-expanded')).toBe('false')
@@ -39,7 +39,7 @@ describe('older ReplicaSets', () => {
   })
 
   it('shows Children for old revisions alone, and nothing extra without them', () => {
-    expect(renderToString(<RelatedResourcesSection relationships={{ inactiveChildren: [rs('web-5c9a')] }} />)).toContain('Show 1 older ReplicaSet')
+    expect(renderToString(<RelatedResourcesSection relationships={{ olderRevisions: [rs('web-5c9a')] }} />)).toContain('Show 1 older ReplicaSet')
     expect(renderToString(<RelatedResourcesSection relationships={{ children: [rs('web-7d4f')] }} />)).not.toContain('older ReplicaSet')
   })
 })
