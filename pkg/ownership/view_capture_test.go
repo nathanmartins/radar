@@ -70,8 +70,8 @@ func (c *countingSession) ValidateStores() error {
 func TestViewValidateIsTheSessions(t *testing.T) {
 	s := newCountingSession(t, ownershiptest.Fixture())
 	s.validate = ownership.ErrStoreReplaced
-	if err := ownership.NewView(s, ownership.Unrestricted()).Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate = %v, want the session's ErrStoreReplaced", err)
+	if err := ownership.NewView(s, ownership.Unrestricted()).ValidateAnswers(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateAnswers = %v, want the session's ErrStoreReplaced", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestViewReadsEachObjectAndSearchesEachOwnerOnce(t *testing.T) {
 		v.Owner(at("", "Pod", "alpha", "web-1-a"))
 		v.Children(rs, 0)
 		v.Children(rs, 1)
-		v.ControllerRoot(at("", "Pod", "alpha", "web-1-b"))
+		v.ControllerChain(at("", "Pod", "alpha", "web-1-b"))
 		v.Members(app)
 	}
 	for ref, n := range s.objects {
@@ -183,7 +183,7 @@ func TestViewAgreesWithItselfWhileTheClusterChanges(t *testing.T) {
 		return o.Resolution.State == ownership.OwnerFound && o.Resolution.Ref == rs
 	}
 	listed := func(v *ownership.View) bool {
-		return slices.ContainsFunc(v.Children(rs, 0).Children, func(c ownership.Child) bool { return c.Ref == pod })
+		return slices.ContainsFunc(v.Children(rs, 0).Children, func(c ownership.Observation) bool { return c.Ref == pod })
 	}
 
 	// Children first, then the Pod changes, then Owner.
@@ -224,11 +224,11 @@ func TestViewAnswersFromItsCaptureWhenTheSearchFindsANewerCopy(t *testing.T) {
 	later, _ := ownershiptest.Scan(after).Begin()
 	s.later, s.switchAt = later, "Object"
 	v := ownership.NewView(s, ownership.Unrestricted())
-	if o := v.Owner(pod); o.Resolution.State != ownership.OwnerFound || !isControllerRef(o.Subject.Read.Object.OwnerReferences[o.Index]) {
+	if o := v.Owner(pod); o.Resolution.State != ownership.OwnerFound || o.Reference == nil || !isControllerRef(*o.Reference) {
 		t.Fatalf("scenario: the Pod's first read must name its ReplicaSet as controller")
 	}
-	i := slices.IndexFunc(v.Children(rs, 0).Children, func(c ownership.Child) bool { return c.Ref == pod })
-	if i < 0 || !v.Children(rs, 0).Children[i].Controller {
+	i := slices.IndexFunc(v.Children(rs, 0).Children, func(c ownership.Observation) bool { return c.Ref == pod })
+	if i < 0 || !isControllerRef(v.Children(rs, 0).Children[i].OwnerReferences[0]) {
 		t.Fatalf("Children of the ReplicaSet must list the Pod as the controlled child the view read")
 	}
 }
@@ -282,8 +282,8 @@ func TestViewMembersRefuseAManagerThatChangedBetweenReads(t *testing.T) {
 	if len(got.Members) != 0 || len(got.Gaps) != 1 || got.Gaps[0].Reason != readreason.KindSyncPending {
 		t.Fatalf("members of a manager that changed between reads = %d members, gaps %+v; want none and a sync-pending gap", len(got.Members), got.Gaps)
 	}
-	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
-		t.Errorf("Validate = %v; want ErrObjectsChanged, so the caller reads again", err)
+	if err := v.ValidateAnswers(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Errorf("ValidateAnswers = %v; want ErrObjectsChanged, so the caller reads again", err)
 	}
 }
 
@@ -339,15 +339,15 @@ func TestViewAuthorizesAnAllNamespacesGapByKind(t *testing.T) {
 // podsInAlphaOnly may read every namespace, Pods only in alpha.
 type podsInAlphaOnly struct{}
 
-func (podsInAlphaOnly) Read(gk resourceid.GroupKind, namespace string) ownership.Decision {
+func (podsInAlphaOnly) CanRead(gk resourceid.GroupKind, namespace string) ownership.Decision {
 	if gk == pods && namespace != "" && namespace != "alpha" {
 		return ownership.Denied
 	}
 	return ownership.Allowed
 }
-func (podsInAlphaOnly) Namespaces() ([]string, bool)     { return nil, true }
-func (podsInAlphaOnly) Everything() bool                 { return false }
-func (podsInAlphaOnly) AllKindsIn(namespace string) bool { return namespace == "alpha" }
+func (podsInAlphaOnly) Namespaces() ([]string, bool)            { return nil, true }
+func (podsInAlphaOnly) CanReadEverything() bool                 { return false }
+func (podsInAlphaOnly) CanReadAllKindsIn(namespace string) bool { return namespace == "alpha" }
 
 // On a cluster that doesn't change, nothing a view reads contradicts a
 // search it made: every search first, then every read, for any caller.
@@ -365,13 +365,13 @@ func TestViewValidatePassesOnAStableCluster(t *testing.T) {
 			for _, o := range w.Objects {
 				v.Owner(o.Ref)
 				v.References(o.Ref)
-				v.ControllerRoot(o.Ref)
+				v.ControllerChain(o.Ref)
 				if ownership.IsRecordingManager(o.Ref.GroupKind()) {
 					v.Members(o.Ref)
 				}
 			}
-			if err := v.Validate(); err != nil {
-				t.Errorf("world %d, access %T: Validate = %v on a cluster that didn't change", i, a, err)
+			if err := v.ValidateAnswers(); err != nil {
+				t.Errorf("world %d, access %T: ValidateAnswers = %v on a cluster that didn't change", i, a, err)
 			}
 		}
 	}
@@ -379,7 +379,7 @@ func TestViewValidatePassesOnAStableCluster(t *testing.T) {
 
 // A Pod adopted after its new owner's dependents were searched is one the
 // search should have found: the view would list no children for the
-// ReplicaSet yet name it as the Pod's owner, so Validate refuses the answers.
+// ReplicaSet yet name it as the Pod's owner, so ValidateAnswers refuses the answers.
 // A search that couldn't read Pods made no claim about them.
 func TestViewValidateRefusesAnObjectAdoptedAfterTheSearch(t *testing.T) {
 	for _, podsLoading := range []bool{false, true} {
@@ -409,9 +409,9 @@ func TestViewValidateRefusesAnObjectAdoptedAfterTheSearch(t *testing.T) {
 		if got := v.Owner(pod.Ref); got.Resolution.State != ownership.OwnerFound {
 			t.Fatalf("pods loading %v: the adopted Pod's owner = %v", podsLoading, got.Resolution.State)
 		}
-		err = v.Validate()
+		err = v.ValidateAnswers()
 		if want := !podsLoading; errors.Is(err, ownership.ErrObjectsChanged) != want {
-			t.Errorf("pods loading %v: Validate = %v; want ErrObjectsChanged %v", podsLoading, err, want)
+			t.Errorf("pods loading %v: ValidateAnswers = %v; want ErrObjectsChanged %v", podsLoading, err, want)
 		}
 	}
 }
@@ -457,8 +457,8 @@ func TestViewValidateRefusesAnAdoptionInANamespaceTheSearchRead(t *testing.T) {
 		if got := v.Owner(pod.Ref); got.Resolution.State != ownership.OwnerFound {
 			t.Fatalf("%s: the Pod's owner = %v", tc.name, got.Resolution.State)
 		}
-		if err := v.Validate(); !errors.Is(err, tc.want) {
-			t.Errorf("%s: Validate = %v, want %v", tc.name, err, tc.want)
+		if err := v.ValidateAnswers(); !errors.Is(err, tc.want) {
+			t.Errorf("%s: ValidateAnswers = %v, want %v", tc.name, err, tc.want)
 		}
 	}
 }
@@ -487,14 +487,14 @@ func TestViewValidateRefusesASeedThatContradictsAnAnswer(t *testing.T) {
 		t.Fatalf("children answered from the absence = %v complete=%v", got.Children, got.Complete())
 	}
 	v.Seed(ownershiptest.Observe(pod))
-	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
-		t.Errorf("Validate = %v; want ErrObjectsChanged", err)
+	if err := v.ValidateAnswers(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Errorf("ValidateAnswers = %v; want ErrObjectsChanged", err)
 	}
 }
 
 // A seeded copy may stand in for a read nothing has used yet; replacing one
 // an answer already used, or contradicting an answer about its owner's
-// children, makes Validate fail.
+// children, makes ValidateAnswers fail.
 func TestViewSeedsOnlyWhatNoAnswerUsed(t *testing.T) {
 	b := ownershiptest.NewBuilder()
 	rs := b.Add("apps", "ReplicaSet", "alpha", "web")
@@ -506,7 +506,7 @@ func TestViewSeedsOnlyWhatNoAnswerUsed(t *testing.T) {
 		want   error
 	}{
 		"seeded first":                      {func(*ownership.View) {}, nil},
-		"after an answer read it as absent": {func(v *ownership.View) { v.ControllerRoot(pod.Ref) }, ownership.ErrObjectsChanged},
+		"after an answer read it as absent": {func(v *ownership.View) { v.ControllerChain(pod.Ref) }, ownership.ErrObjectsChanged},
 		"after its owner's children":        {func(v *ownership.View) { v.Children(rs.Ref, 0) }, ownership.ErrObjectsChanged},
 	} {
 		v := view(t, cached, ownership.Unrestricted())
@@ -515,8 +515,8 @@ func TestViewSeedsOnlyWhatNoAnswerUsed(t *testing.T) {
 		if got := v.Owner(pod.Ref); got.Resolution.State != ownership.OwnerFound {
 			t.Errorf("%s: the seeded Pod's owner = %v", name, got.Resolution.State)
 		}
-		if err := v.Validate(); !errors.Is(err, tc.want) {
-			t.Errorf("%s: Validate = %v, want %v", name, err, tc.want)
+		if err := v.ValidateAnswers(); !errors.Is(err, tc.want) {
+			t.Errorf("%s: ValidateAnswers = %v, want %v", name, err, tc.want)
 		}
 	}
 }
@@ -549,8 +549,8 @@ func TestViewValidateRefusesAnObjectAnotherSearchFindsAdopted(t *testing.T) {
 	if got := v.Children(second.Ref, 0); len(got.Children) != 1 {
 		t.Fatalf("the second owner's children = %v; want the shared Pod", got.Children)
 	}
-	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
-		t.Errorf("Validate = %v; want ErrObjectsChanged", err)
+	if err := v.ValidateAnswers(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Errorf("ValidateAnswers = %v; want ErrObjectsChanged", err)
 	}
 }
 
@@ -582,8 +582,8 @@ func TestViewAnUnresolvedReferenceExcusesNoAdoption(t *testing.T) {
 	if o := v.Owner(late.Ref); o.Resolution.State != ownership.OwnerFound {
 		t.Fatalf("scenario: late must name w, got %v", o.Resolution.State)
 	}
-	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
-		t.Fatalf("Validate = %v; want ErrObjectsChanged", err)
+	if err := v.ValidateAnswers(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Fatalf("ValidateAnswers = %v; want ErrObjectsChanged", err)
 	}
 }
 
@@ -594,7 +594,7 @@ type phased struct {
 	i      int
 }
 
-func (p *phased) cur() ownership.ReadSession      { return p.phases[min(p.i, len(p.phases)-1)] }
+func (p *phased) cur() ownership.ReadSession  { return p.phases[min(p.i, len(p.phases)-1)] }
 func (p *phased) Catalog() *ownership.Catalog { return p.cur().Catalog() }
 func (p *phased) ValidateStores() error       { return nil }
 func (p *phased) Members(r resourceid.Ref) ownership.MembersRead {
@@ -646,7 +646,7 @@ func TestViewAnUnreadObjectExcusesNoOtherAdoption(t *testing.T) {
 	if o := v.Owner(q.Ref); o.Resolution.State != ownership.OwnerFound || o.Resolution.Ref != rs.Ref {
 		t.Fatalf("scenario: q must name the ReplicaSet, got %v %v", o.Resolution.State, o.Resolution.Ref)
 	}
-	if err := v.Validate(); !errors.Is(err, ownership.ErrObjectsChanged) {
-		t.Fatalf("Validate = %v; q was adopted after a search that read alpha's Pods in full", err)
+	if err := v.ValidateAnswers(); !errors.Is(err, ownership.ErrObjectsChanged) {
+		t.Fatalf("ValidateAnswers = %v; q was adopted after a search that read alpha's Pods in full", err)
 	}
 }

@@ -22,7 +22,7 @@ type access struct {
 	undecided  []resourceid.GroupKind
 }
 
-func (a access) Read(gk resourceid.GroupKind, namespace string) ownership.Decision {
+func (a access) CanRead(gk resourceid.GroupKind, namespace string) ownership.Decision {
 	switch {
 	case slices.Contains(a.undecided, gk):
 		return ownership.Undecided
@@ -34,11 +34,11 @@ func (a access) Read(gk resourceid.GroupKind, namespace string) ownership.Decisi
 
 func (a access) Namespaces() ([]string, bool) { return a.namespaces, a.namespaces == nil }
 
-func (a access) Everything() bool {
+func (a access) CanReadEverything() bool {
 	return a.namespaces == nil && len(a.denied) == 0 && len(a.undecided) == 0
 }
 
-func (a access) AllKindsIn(namespace string) bool {
+func (a access) CanReadAllKindsIn(namespace string) bool {
 	return (a.namespaces == nil || slices.Contains(a.namespaces, namespace)) && len(a.denied) == 0 && len(a.undecided) == 0
 }
 
@@ -90,9 +90,9 @@ func TestViewOwnerIsTheControllerOrTheOnlyReference(t *testing.T) {
 			if !got.Subject.Present() {
 				t.Fatalf("subject = %v %v", got.Subject.Access, got.Subject.Read.State)
 			}
-			if got.Index != tc.index || got.Several != tc.several || got.Resolution.State != tc.state || got.Resolution.Ref != tc.ref || got.Resolution.Gap != tc.gap {
+			if index := referenceIndex(got); index != tc.index || got.Several != tc.several || got.Resolution.State != tc.state || got.Resolution.Ref != tc.ref || got.Resolution.Gap != tc.gap {
 				t.Fatalf("Owner = index %d several %v %v %v %+v; want index %d several %v %v %v %+v",
-					got.Index, got.Several, got.Resolution.State, got.Resolution.Ref, got.Resolution.Gap, tc.index, tc.several, tc.state, tc.ref, tc.gap)
+					index, got.Several, got.Resolution.State, got.Resolution.Ref, got.Resolution.Gap, tc.index, tc.several, tc.state, tc.ref, tc.gap)
 			}
 		})
 	}
@@ -101,7 +101,7 @@ func TestViewOwnerIsTheControllerOrTheOnlyReference(t *testing.T) {
 func TestViewSaysNothingOfAnObjectTheCallerMayNotRead(t *testing.T) {
 	v := view(t, ownershiptest.Fixture(), access{denied: []resourceid.GroupKind{pods}})
 	pod := at("", "Pod", "alpha", "web-1-a")
-	if got := v.Owner(pod); got.Subject.Access != ownership.Denied || got.Subject.Read.State != ownership.Unavailable || got.Subject.Read.Object.UID != "" || got.Index != -1 {
+	if got := v.Owner(pod); got.Subject.Access != ownership.Denied || got.Subject.Read.State != ownership.Unavailable || got.Subject.Read.Object.UID != "" || got.Reference != nil {
 		t.Fatalf("Owner of a Pod the caller may not read = %+v", got)
 	}
 	if got := v.Children(pod, 0); got.Subject.Present() || got.Children != nil || got.Gaps != nil || got.Complete() {
@@ -111,8 +111,8 @@ func TestViewSaysNothingOfAnObjectTheCallerMayNotRead(t *testing.T) {
 	if got := unsure.Children(pod, 0); got.Subject.Present() || got.Complete() {
 		t.Fatalf("Children when the caller's access couldn't be checked = %+v complete=%v", got, got.Complete())
 	}
-	if got := v.ControllerRoot(pod); got.Subject.Present() || got.Root != pod || got.Stop != nil {
-		t.Fatalf("ControllerRoot = %+v", got)
+	if got := v.ControllerChain(pod); got.Subject.Present() || len(got.Chain) != 0 || got.UnfollowedReference != nil {
+		t.Fatalf("ControllerChain = %+v", got)
 	}
 }
 
@@ -166,8 +166,8 @@ func TestViewSeedsAnObjectTheCachesDoNotHold(t *testing.T) {
 	if got := seeded.Members(app); got.Membership != ownership.MembersUnreadable || len(got.Gaps) != 1 || got.Gaps[0].Reason != readreason.RadarKindNotCollected {
 		t.Fatalf("members of an uncollected manager = %v gaps %+v; want unreadable, as Radar doesn't collect it", got.Membership, got.Gaps)
 	}
-	if err := seeded.Validate(); err != nil {
-		t.Fatalf("Validate = %v; a manager Radar doesn't collect changed nothing", err)
+	if err := seeded.ValidateAnswers(); err != nil {
+		t.Fatalf("ValidateAnswers = %v; a manager Radar doesn't collect changed nothing", err)
 	}
 
 	// Seeding grants no access.
@@ -178,10 +178,22 @@ func TestViewSeedsAnObjectTheCachesDoNotHold(t *testing.T) {
 	}
 }
 
+// referenceIndex is where the chosen reference sits among the subject's own
+// owner references, or -1 when none was chosen or it isn't one of them.
+func referenceIndex(a ownership.OwnerAnswer) int {
+	refs := a.Subject.Read.Object.OwnerReferences
+	for i := range refs {
+		if a.Reference == &refs[i] {
+			return i
+		}
+	}
+	return -1
+}
+
 func childRefs(a ownership.ChildrenAnswer) []string {
 	var out []string
 	for _, c := range a.Children {
-		out = append(out, fmt.Sprintf("%v controller=%v", c.Ref, c.Controller))
+		out = append(out, c.Ref.String())
 	}
 	return out
 }
@@ -201,20 +213,20 @@ func TestViewChildrenResolveToTheOwnersCurrentIncarnation(t *testing.T) {
 		// The stray Pod in beta names the ReplicaSet's UID but resolves in its
 		// own namespace; wrong-coordinates names the UID under another kind.
 		{"a ReplicaSet's Pods", ownership.Unrestricted(), at("apps", "ReplicaSet", "alpha", "web-1"),
-			[]string{"Pod alpha/web-1-a controller=true", "Pod alpha/web-1-b controller=true"}, false, nil},
+			[]string{"Pod alpha/web-1-a", "Pod alpha/web-1-b"}, false, nil},
 		{"a controlled and a plain child", ownership.Unrestricted(), at("apps", "Deployment", "alpha", "web"),
-			[]string{"ReplicaSet.apps alpha/web-1 controller=true", "Widget.example.io alpha/w1 controller=false"}, false, nil},
+			[]string{"ReplicaSet.apps alpha/web-1", "Widget.example.io alpha/w1"}, false, nil},
 		// s1's kind can't be watched; n2 is cluster-scoped, which a namespaced
 		// owner can't own. j1 names a version discovery doesn't list, which the
 		// collector retries, so j1 may yet be a child.
 		{"through any served version", ownership.Unrestricted(), at("example.io", "Widget", "alpha", "w1"),
-			[]string{"ConfigMap alpha/shared controller=false", "ConfigMap alpha/versioned controller=false"}, false, unlistedWidget},
+			[]string{"ConfigMap alpha/shared", "ConfigMap alpha/versioned"}, false, unlistedWidget},
 		{"none for an earlier incarnation's dependent", ownership.Unrestricted(), at("apps", "ReplicaSet", "alpha", "web-old"), nil, false, nil},
 		{"none from an Event", ownership.Unrestricted(), at("", "Pod", "alpha", "web-1-a"), nil, false, nil},
 		{"a cluster-scoped owner's, anywhere", ownership.Unrestricted(), at("", "Node", "", "n1"),
-			[]string{"ClusterWidget.example.io cw1 controller=false", "Gadget.example.io beta/g1 controller=true"}, false, nil},
+			[]string{"ClusterWidget.example.io cw1", "Gadget.example.io beta/g1"}, false, nil},
 		{"only those the caller may read", access{namespaces: []string{"alpha"}}, at("", "Node", "", "n1"),
-			[]string{"ClusterWidget.example.io cw1 controller=false"}, true, nil},
+			[]string{"ClusterWidget.example.io cw1"}, true, nil},
 		{"none of a kind the caller may not read", access{denied: []resourceid.GroupKind{configMaps}}, at("example.io", "Widget", "alpha", "w1"), nil, true, unlistedWidget},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -245,37 +257,36 @@ func TestViewChildrenReportWhatTheSearchCouldNotRead(t *testing.T) {
 	}
 }
 
-func TestViewControllerRoot(t *testing.T) {
+func TestViewControllerChain(t *testing.T) {
 	w := ownershiptest.Fixture()
 	stray := at("", "Pod", "beta", "stray")
 	for _, tc := range []struct {
 		name   string
 		access ownership.Access
 		start  resourceid.Ref
-		root   resourceid.Ref
+		end    resourceid.Ref
 		stop   ownership.OwnerState
-		node   bool
 	}{
-		{"through a ReplicaSet", ownership.Unrestricted(), at("", "Pod", "alpha", "web-1-a"), at("apps", "Deployment", "alpha", "web"), 0, false},
-		{"a root has no controller", ownership.Unrestricted(), at("apps", "Deployment", "alpha", "web"), at("apps", "Deployment", "alpha", "web"), 0, false},
-		{"stops at a controller that's gone", ownership.Unrestricted(), stray, stray, ownership.OwnerGone, false},
-		{"stops at a withheld controller", access{denied: []resourceid.GroupKind{replicaSets}}, at("", "Pod", "alpha", "web-1-a"), at("", "Pod", "alpha", "web-1-a"), ownership.OwnerWithheld, false},
-		{"ends at a Node", ownership.Unrestricted(), at("example.io", "Gadget", "beta", "g1"), at("example.io", "Gadget", "beta", "g1"), 0, true},
+		{"through a ReplicaSet", ownership.Unrestricted(), at("", "Pod", "alpha", "web-1-a"), at("apps", "Deployment", "alpha", "web"), 0},
+		{"an object with no controller", ownership.Unrestricted(), at("apps", "Deployment", "alpha", "web"), at("apps", "Deployment", "alpha", "web"), 0},
+		{"stops at a controller that's gone", ownership.Unrestricted(), stray, stray, ownership.OwnerGone},
+		{"stops at a withheld controller", access{denied: []resourceid.GroupKind{replicaSets}}, at("", "Pod", "alpha", "web-1-a"), at("", "Pod", "alpha", "web-1-a"), ownership.OwnerWithheld},
+		{"ends at a Node, outside the chain", ownership.Unrestricted(), at("example.io", "Gadget", "beta", "g1"), at("example.io", "Gadget", "beta", "g1"), 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := view(t, w, tc.access).ControllerRoot(tc.start)
+			got := view(t, w, tc.access).ControllerChain(tc.start)
 			stop := ownership.OwnerState(0)
-			if got.Stop != nil {
-				stop = got.Stop.State
+			if got.UnfollowedReference != nil {
+				stop = got.UnfollowedReference.State
 			}
-			if got.Root != tc.root || (got.Stop != nil) != (tc.stop != 0) || stop != tc.stop || got.Node != tc.node || got.Cycle || got.Truncated {
-				t.Fatalf("ControllerRoot = %+v (stop %v); want root %v stop %v node %v", got, stop, tc.root, tc.stop, tc.node)
+			if got.Chain[len(got.Chain)-1] != tc.end || (got.UnfollowedReference != nil) != (tc.stop != 0) || stop != tc.stop || got.Cycle || got.Truncated {
+				t.Fatalf("ControllerChain = %+v (stop %v); want to end at %v, stop %v", got, stop, tc.end, tc.stop)
 			}
 		})
 	}
 }
 
-func TestViewControllerRootTerminals(t *testing.T) {
+func TestViewControllerChainTerminals(t *testing.T) {
 	b := ownershiptest.NewBuilder()
 	missingNode := metav1.OwnerReference{APIVersion: "v1", Kind: "Node", Name: "gone", UID: "uid-gone"}
 	yes := true
@@ -293,35 +304,31 @@ func TestViewControllerRootTerminals(t *testing.T) {
 	}
 	v := view(t, b.World(), ownership.Unrestricted())
 
-	if got := v.ControllerRoot(mirror.Ref); got.Root != mirror.Ref || !got.Node || got.Stop == nil || got.Stop.State != ownership.OwnerGone {
-		t.Errorf("a mirror Pod of a deleted Node = %+v; want itself, ended by the Node, which is gone", got)
+	if got := v.ControllerChain(mirror.Ref); !slices.Equal(got.Chain, []resourceid.Ref{mirror.Ref}) || got.UnfollowedReference == nil || got.UnfollowedReference.State != ownership.OwnerGone {
+		t.Errorf("a mirror Pod of a deleted Node = %+v; want itself alone, stopped by the Node, which is gone", got)
 	}
-	// A feeder that sorts before the loop's members still gets the loop's
-	// root: the smallest member of the loop itself, not of the walk.
-	first := b.Add("example.io", "Widget", "x", "0", refTo("b"))
-	v = view(t, b.World(), ownership.Unrestricted())
-	for _, start := range []ownershiptest.Object{loopA, loopB, tail, first} {
-		if got := v.ControllerRoot(start.Ref); got.Root != loopA.Ref || !got.Cycle {
-			t.Errorf("from %v = %+v; want the loop's smallest member, a, from any start", start.Ref, got)
+	for _, start := range []ownershiptest.Object{loopA, loopB, tail} {
+		if got := v.ControllerChain(start.Ref); !got.Cycle || !slices.Contains(got.Chain, loopA.Ref) || !slices.Contains(got.Chain, loopB.Ref) || got.UnfollowedReference != nil {
+			t.Errorf("from %v = %+v; want a cycle through a and b from any start", start.Ref, got)
 		}
 	}
-	if got := v.ControllerRoot(at("example.io", "Widget", "chain", "0")); !got.Truncated || got.Root != at("example.io", "Widget", "chain", "16") || len(got.Chain) != 17 {
+	if got := v.ControllerChain(at("example.io", "Widget", "chain", "0")); !got.Truncated || got.Chain[len(got.Chain)-1] != at("example.io", "Widget", "chain", "16") || len(got.Chain) != 17 {
 		t.Errorf("an over-long chain = %+v; want a walk bounded at 16 references", got)
 	}
-	if got := v.ControllerRoot(tail.Ref); !slices.Equal(got.Chain, []resourceid.Ref{tail.Ref, loopB.Ref, loopA.Ref}) {
+	if got := v.ControllerChain(tail.Ref); !slices.Equal(got.Chain, []resourceid.Ref{tail.Ref, loopB.Ref, loopA.Ref}) {
 		t.Errorf("chain into a loop = %v; want tail, b, a", got.Chain)
 	}
 }
 
-func TestViewControllerRootChain(t *testing.T) {
+func TestViewControllerChainFollowsEachController(t *testing.T) {
 	v := view(t, ownershiptest.Fixture(), ownership.Unrestricted())
 	pod := at("", "Pod", "alpha", "web-1-a")
 	want := []resourceid.Ref{pod, at("apps", "ReplicaSet", "alpha", "web-1"), at("apps", "Deployment", "alpha", "web")}
-	if got := v.ControllerRoot(pod); !slices.Equal(got.Chain, want) {
+	if got := v.ControllerChain(pod); !slices.Equal(got.Chain, want) {
 		t.Fatalf("chain = %v, want %v", got.Chain, want)
 	}
 	stray := at("", "Pod", "beta", "stray")
-	if got := v.ControllerRoot(stray); !slices.Equal(got.Chain, []resourceid.Ref{stray}) {
+	if got := v.ControllerChain(stray); !slices.Equal(got.Chain, []resourceid.Ref{stray}) {
 		t.Fatalf("chain stopped at the first reference = %v", got.Chain)
 	}
 }
@@ -397,8 +404,8 @@ func TestViewChildrenListAnObjectNamingItsOwnerTwiceOnce(t *testing.T) {
 	b.Add("", "Pod", "alpha", "dup", rs.OwnerRef(true), rs.OwnerRef(false))
 	v := view(t, b.World(), ownership.Unrestricted())
 	v.Owner(at("", "Pod", "alpha", "dup"))
-	if got := v.Children(rs.Ref, 0); len(got.Children) != 1 || !got.Children[0].Controller {
-		t.Fatalf("children = %q; want dup once, as a controller", childRefs(got))
+	if got := v.Children(rs.Ref, 0); len(got.Children) != 1 {
+		t.Fatalf("children = %q; want dup once", childRefs(got))
 	}
 }
 
@@ -446,7 +453,7 @@ func TestViewOwnersAndChildrenAgree(t *testing.T) {
 				if !children.Complete() {
 					continue
 				}
-				if !slices.ContainsFunc(children.Children, func(c ownership.Child) bool { return c.Ref == o.Ref }) {
+				if !slices.ContainsFunc(children.Children, func(c ownership.Observation) bool { return c.Ref == o.Ref }) {
 					t.Errorf("world %d: %v resolves its owner %v, which doesn't list it among %q", i, o.Ref, r.Ref, childRefs(children))
 				}
 			}
@@ -488,7 +495,7 @@ func TestViewAnswersOnlyNarrowForACallerWhoMayReadLess(t *testing.T) {
 
 func checkNarrows(t *testing.T, where string, full, v *ownership.View, caller access, ref resourceid.Ref) {
 	t.Helper()
-	readable := func(r resourceid.Ref) bool { return caller.Read(r.GroupKind(), r.Namespace) == ownership.Allowed }
+	readable := func(r resourceid.Ref) bool { return caller.CanRead(r.GroupKind(), r.Namespace) == ownership.Allowed }
 	subject, got := v.References(ref)
 	if !readable(ref) {
 		if subject.Present() || got != nil {
@@ -510,16 +517,16 @@ func checkNarrows(t *testing.T, where string, full, v *ownership.View, caller ac
 	}
 	children, all := v.Children(ref, 0), full.Children(ref, 0)
 	for _, c := range children.Children {
-		if !readable(c.Ref) || !slices.ContainsFunc(all.Children, func(f ownership.Child) bool { return f.Ref == c.Ref && f.Controller == c.Controller }) {
+		if !readable(c.Ref) || !slices.ContainsFunc(all.Children, func(f ownership.Observation) bool { return f.Ref == c.Ref }) {
 			t.Errorf("%s: child %v isn't one the full view has and the caller may read", where, c.Ref)
 		}
 	}
 	if len(children.Children) < len(all.Children) && !children.Narrowed {
 		t.Errorf("%s: %d of %d children without saying the answer is narrowed", where, len(children.Children), len(all.Children))
 	}
-	root, fullRoot := v.ControllerRoot(ref), full.ControllerRoot(ref)
-	if root.Root != fullRoot.Root && (root.Stop == nil || root.Stop.State != ownership.OwnerWithheld && root.Stop.Gap.Reason != readreason.UserPermissionCheckFailed) {
-		t.Errorf("%s: root %v, full %v, without a withheld stop", where, root.Root, fullRoot.Root)
+	chain, fullChain := v.ControllerChain(ref), full.ControllerChain(ref)
+	if !slices.Equal(chain.Chain, fullChain.Chain) && (chain.UnfollowedReference == nil || chain.UnfollowedReference.State != ownership.OwnerWithheld && chain.UnfollowedReference.Gap.Reason != readreason.UserPermissionCheckFailed) {
+		t.Errorf("%s: chain %v, full %v, without a withheld stop", where, chain.Chain, fullChain.Chain)
 	}
 	if ownership.IsRecordingManager(ref.GroupKind()) {
 		members, allMembers := v.Members(ref), full.Members(ref)

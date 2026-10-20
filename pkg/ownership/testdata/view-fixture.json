@@ -491,8 +491,7 @@
       "references": [
         "found Node n1"
       ],
-      "owner": "reference 0: found Node n1",
-      "controllerRoot": "Gadget.example.io beta/g1, ended by its Node"
+      "owner": "reference 0: found Node n1"
     },
     {
       "object": "Node.example.io alpha/n1",

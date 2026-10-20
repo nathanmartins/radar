@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/skyhook-io/radar/pkg/ownership"
 	"github.com/skyhook-io/radar/pkg/ownership/ownershiptest"
 	"github.com/skyhook-io/radar/pkg/resourceid"
@@ -117,13 +119,15 @@ func answer(v *ownership.View, ref resourceid.Ref) goldenAnswer {
 	switch owner := v.Owner(ref); {
 	case owner.Several:
 		a.Owner = "several, none a controller"
-	case owner.Index >= 0:
-		a.Owner = fmt.Sprintf("reference %d: %s", owner.Index, resolutionText(owner.Resolution))
+	case owner.Reference != nil:
+		a.Owner = fmt.Sprintf("reference %d: %s", referenceIndex(owner), resolutionText(owner.Resolution))
 	}
 	children := v.Children(ref, 0)
 	for _, c := range children.Children {
 		s := c.Ref.String()
-		if c.Controller {
+		if slices.ContainsFunc(c.OwnerReferences, func(r metav1.OwnerReference) bool {
+			return r.UID == subject.Read.Object.UID && isControllerRef(r)
+		}) {
 			s += " (controller)"
 		}
 		a.Children = append(a.Children, s)
@@ -134,18 +138,17 @@ func answer(v *ownership.View, ref resourceid.Ref) goldenAnswer {
 	if children.Narrowed {
 		a.Coverage = append(a.Coverage, "narrowed to what the caller may read")
 	}
-	root := v.ControllerRoot(ref)
+	chain := v.ControllerChain(ref)
+	end := chain.Chain[len(chain.Chain)-1]
 	switch {
-	case root.Cycle:
-		a.Root = "cycle at " + root.Root.String()
-	case root.Truncated:
-		a.Root = "truncated at " + root.Root.String()
-	case root.Stop != nil:
-		a.Root = fmt.Sprintf("%s, stopped by %s", root.Root, resolutionText(*root.Stop))
-	case root.Node:
-		a.Root = root.Root.String() + ", ended by its Node"
-	case root.Root != ref:
-		a.Root = root.Root.String()
+	case chain.Cycle:
+		a.Root = "cycle after " + end.String()
+	case chain.Truncated:
+		a.Root = "truncated at " + end.String()
+	case chain.UnfollowedReference != nil:
+		a.Root = fmt.Sprintf("%s, stopped by %s", end, resolutionText(*chain.UnfollowedReference))
+	case end != ref:
+		a.Root = end.String()
 	}
 	if ownership.IsRecordingManager(ref.GroupKind()) {
 		m := v.Members(ref)

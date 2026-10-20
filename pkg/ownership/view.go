@@ -19,9 +19,9 @@ import (
 // changes. It searches each owner's dependents and reads each manager's
 // member list at most once. An object it first reads after a search that
 // should have found it means the cluster changed in a way one capture can't
-// reconcile, and Validate says so. It never reads an object the caller may
+// reconcile, and ValidateAnswers says so. It never reads an object the caller may
 // not read, and says nothing of whether there is one. Its answers hold only
-// if Validate passes once they are built. They share the view's captures, so
+// if ValidateAnswers passes once they are built. They share the view's captures, so
 // they must not be modified. A View is not safe for concurrent use.
 type View struct {
 	session ReadSession
@@ -61,11 +61,11 @@ func NewView(s ReadSession, access Access) *View {
 	}
 }
 
-// Validate reports whether every store the view's answers came from is still
-// the one serving them (see Session.Validate), and returns ErrObjectsChanged
+// ValidateAnswers reports whether every store the view's answers came from is still
+// the one serving them (see Session.ValidateAnswers), and returns ErrObjectsChanged
 // if an object the view read contradicts a search it made, a seed replaced a
 // read an answer used, or a manager changed between its two reads.
-func (v *View) Validate() error {
+func (v *View) ValidateAnswers() error {
 	if err := v.session.ValidateStores(); err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (v *View) read(ref resourceid.Ref) (ObjectRead, Decision) {
 	if r, ok := v.reads[ref]; ok {
 		return r.read, r.may
 	}
-	r := accessRead{may: v.access.Read(ref.GroupKind(), ref.Namespace)}
+	r := accessRead{may: v.access.CanRead(ref.GroupKind(), ref.Namespace)}
 	if r.may == Allowed {
 		r.read = v.session.Object(ref)
 		if r.read.State == Present {
@@ -132,7 +132,7 @@ func covers(g Gap, ref resourceid.Ref, collected bool) bool {
 // fetched it from the API and Radar doesn't collect its kind. A read that
 // holds the object stands, as does an excluded one or one the caller may not
 // make. Seed an object before asking about it: replacing a read an earlier
-// answer used makes Validate fail. The view keeps o, which must not be
+// answer used makes ValidateAnswers fail. The view keeps o, which must not be
 // modified afterwards.
 func (v *View) Seed(o Observation) {
 	_, answered := v.reads[o.Ref]
@@ -185,10 +185,10 @@ func (v *View) References(ref resourceid.Ref) (Subject, []OwnerResolution) {
 // its only reference when it has no controller.
 type OwnerAnswer struct {
 	Subject Subject
-	// Index is the reference's position among the object's owner references,
-	// or -1 when it has no such reference: none at all, or several without a
-	// controller (Several).
-	Index      int
+	// Reference is the owner reference chosen, one of the subject's own. It is
+	// nil when there is none: no owner references at all, or several without
+	// a controller (Several).
+	Reference  *metav1.OwnerReference
 	Resolution OwnerResolution
 	Several    bool
 }
@@ -198,7 +198,7 @@ type OwnerAnswer struct {
 // controller never gives way to a weaker owner.
 func (v *View) Owner(ref resourceid.Ref) OwnerAnswer {
 	subject, resolutions := v.References(ref)
-	a := OwnerAnswer{Subject: subject, Index: -1}
+	a := OwnerAnswer{Subject: subject}
 	if !subject.Present() {
 		return a
 	}
@@ -211,7 +211,7 @@ func (v *View) Owner(ref resourceid.Ref) OwnerAnswer {
 		a.Several = len(refs) > 1
 		return a
 	}
-	a.Index, a.Resolution = i, resolutions[i]
+	a.Reference, a.Resolution = &refs[i], resolutions[i]
 	return a
 }
 
@@ -219,19 +219,12 @@ func isController(ref metav1.OwnerReference) bool {
 	return ref.Controller != nil && *ref.Controller
 }
 
-// Child is an object whose owner reference names its owner's current
-// incarnation.
-type Child struct {
-	Observation
-	// Controller: the reference is the child's controller reference.
-	Controller bool
-}
-
 // ChildrenAnswer is what an object owns, as one caller may see it.
 type ChildrenAnswer struct {
 	Subject Subject
-	// Children are ordered by group, kind, namespace and name.
-	Children []Child
+	// Children are the objects whose owner reference names the subject's
+	// current incarnation, ordered by group, kind, namespace and name.
+	Children []Observation
 	// Gaps are the parts of the search the source couldn't read (see
 	// DependentCandidatesRead.Gaps), objects the search found that the view couldn't
 	// read, and references to the subject's UID that may resolve to it but
@@ -285,7 +278,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	// children.
 	var unresolved []Gap
 	for _, c := range candidates {
-		child, names := Child{Observation: c}, false
+		names := false
 		var unknown []Gap
 		for _, r := range c.OwnerReferences {
 			if r.UID != owner.UID {
@@ -294,7 +287,6 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			switch res := v.resolve(c, r); {
 			case res.State == OwnerFound && res.Ref == ref:
 				names = true
-				child.Controller = child.Controller || isController(r)
 			case res.State == OwnerUnknown && mayResolveTo(res, r.Name, ref):
 				unknown = append(unknown, res.Gap)
 			}
@@ -307,7 +299,7 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 			a.Truncated = true
 			break
 		}
-		a.Children = append(a.Children, child)
+		a.Children = append(a.Children, c)
 	}
 	for _, g := range found.Gaps {
 		if v.coversReadable(g, domain) {
@@ -355,7 +347,7 @@ func (v *View) candidates(found DependentCandidatesRead, uid types.UID, domain S
 	for _, c := range found.Candidates {
 		r, read := v.reads[c.Ref]
 		if !read {
-			r = accessRead{may: v.access.Read(c.Ref.GroupKind(), c.Ref.Namespace)}
+			r = accessRead{may: v.access.CanRead(c.Ref.GroupKind(), c.Ref.Namespace)}
 			if r.may == Allowed {
 				r.read = ObjectRead{State: Present, Object: c}
 				v.captured(c, true)
@@ -398,58 +390,55 @@ func (v *View) coversReadable(g Gap, domain SearchScope) bool {
 		return true
 	}
 	if g.Namespace != "" {
-		return v.access.Read(g.Kind, g.Namespace) != Denied
+		return v.access.CanRead(g.Kind, g.Namespace) != Denied
 	}
 	k, known := v.session.Catalog().Kind(g.Kind)
 	if !known || !k.Namespaced {
-		return v.access.Read(g.Kind, "") != Denied
+		return v.access.CanRead(g.Kind, "") != Denied
 	}
 	if domain.AllNamespaces {
-		return v.access.Read(g.Kind, "") != Denied
+		return v.access.CanRead(g.Kind, "") != Denied
 	}
-	return slices.ContainsFunc(domain.Namespaces, func(ns string) bool { return v.access.Read(g.Kind, ns) != Denied })
+	return slices.ContainsFunc(domain.Namespaces, func(ns string) bool { return v.access.CanRead(g.Kind, ns) != Denied })
 }
 
 // narrows reports whether the caller may read less than every place ref's
 // children could be: anywhere for a cluster-scoped owner, its namespace for a
 // namespaced one.
 func (v *View) narrows(ref resourceid.Ref) bool {
-	if v.access.Everything() {
+	if v.access.CanReadEverything() {
 		return false
 	}
-	return ref.Namespace == "" || !v.access.AllKindsIn(ref.Namespace)
+	return ref.Namespace == "" || !v.access.CanReadAllKindsIn(ref.Namespace)
 }
 
-// RootAnswer is where an object's chain of controller references ends.
-type RootAnswer struct {
+// ControllerChainAnswer is the chain of controller references from an object
+// up to the first one that can't be followed.
+type ControllerChainAnswer struct {
 	Subject Subject
-	// Root is the last object the walk reached: the subject itself when its
-	// controller reference can't be followed.
-	Root resourceid.Ref
-	// Chain is every object the walk reached, from the subject to Root.
+	// Chain is every object the walk reached, from the subject on.
 	Chain []resourceid.Ref
-	// Stop is the controller reference the walk couldn't follow. It is nil
-	// when Root has no controller reference, and when the walk ends in a
-	// Cycle or is Truncated. A Node controller ends the walk (Node), outside
-	// Chain, and is Stop only when it isn't found.
-	Stop *OwnerResolution
-	Node bool
-	// Cycle: the references loop. Root is the smallest object in the loop
-	// itself, so every object on the loop or feeding it has the same root.
+	// UnfollowedReference is the controller reference the walk couldn't
+	// follow. It is nil when the last object in Chain has no controller
+	// reference, and when the walk ends in a Cycle or is Truncated. A Node
+	// controller ends the walk outside Chain, and is UnfollowedReference only
+	// when it isn't found.
+	UnfollowedReference *OwnerResolution
+	// Cycle: the references loop back into Chain.
 	Cycle bool
 	// Truncated: the chain is longer than maxControllerDepth references,
-	// which only corrupt references produce; Root is where the walk gave up.
+	// which only corrupt references produce.
 	Truncated bool
 }
 
 // maxControllerDepth bounds the walk; real chains are a few hops deep.
 const maxControllerDepth = 16
 
-// ControllerRoot follows ref's controller references to the first it can't
+// ControllerChain follows ref's controller references to the first it can't
 // follow, and says why it stopped.
-func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
+func (v *View) ControllerChain(ref resourceid.Ref) ControllerChainAnswer {
 	subject := v.subject(ref)
-	a := RootAnswer{Subject: subject, Root: ref}
+	a := ControllerChainAnswer{Subject: subject}
 	if !subject.Present() {
 		return a
 	}
@@ -462,18 +451,17 @@ func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
 		}
 		r := v.resolve(current, current.OwnerReferences[i])
 		if r.Ref.Group == "" && r.Ref.Kind == "Node" {
-			a.Node = true
 			if r.State != OwnerFound {
-				a.Stop = &r
+				a.UnfollowedReference = &r
 			}
 			return a
 		}
 		if r.State != OwnerFound {
-			a.Stop = &r
+			a.UnfollowedReference = &r
 			return a
 		}
-		if at := slices.Index(a.Chain, r.Ref); at >= 0 {
-			a.Root, a.Cycle = slices.MinFunc(a.Chain[at:], compareRefs), true
+		if slices.Contains(a.Chain, r.Ref) {
+			a.Cycle = true
 			return a
 		}
 		if len(a.Chain) > maxControllerDepth {
@@ -481,7 +469,7 @@ func (v *View) ControllerRoot(ref resourceid.Ref) RootAnswer {
 			return a
 		}
 		a.Chain = append(a.Chain, r.Ref)
-		a.Root, current = r.Ref, r.Owner
+		current = r.Owner
 	}
 }
 

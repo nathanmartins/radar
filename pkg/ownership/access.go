@@ -32,19 +32,19 @@ func (d Decision) String() string {
 // Access is what one caller may read. A View names only objects the caller
 // may read, and says nothing of whether there are others.
 type Access interface {
-	// Read decides whether the caller may read objects of kind in namespace.
+	// CanRead decides whether the caller may read objects of kind in namespace.
 	// With namespace "" it decides objects of a cluster-scoped kind, or
 	// whether the caller may read a namespaced kind in at least one of the
 	// namespaces Namespaces reports.
-	Read(kind resourceid.GroupKind, namespace string) Decision
+	CanRead(kind resourceid.GroupKind, namespace string) Decision
 	// Namespaces are the namespaces in which the caller may read some
-	// namespaced kinds, or every namespace when all is set. Read decides each
+	// namespaced kinds, or every namespace when all is set. CanRead decides each
 	// kind in them.
 	Namespaces() (namespaces []string, all bool)
-	// Everything reports whether Read allows every kind in every namespace.
-	Everything() bool
-	// AllKindsIn reports whether Read allows every kind in namespace.
-	AllKindsIn(namespace string) bool
+	// CanReadEverything reports whether CanRead allows every kind in every namespace.
+	CanReadEverything() bool
+	// CanReadAllKindsIn reports whether CanRead allows every kind in namespace.
+	CanReadAllKindsIn(namespace string) bool
 }
 
 // Unrestricted is the access of a caller who may read everything, as anyone
@@ -53,10 +53,10 @@ func Unrestricted() Access { return unrestricted{} }
 
 type unrestricted struct{}
 
-func (unrestricted) Read(resourceid.GroupKind, string) Decision { return Allowed }
-func (unrestricted) Namespaces() ([]string, bool)               { return nil, true }
-func (unrestricted) Everything() bool                           { return true }
-func (unrestricted) AllKindsIn(string) bool                     { return true }
+func (unrestricted) CanRead(resourceid.GroupKind, string) Decision { return Allowed }
+func (unrestricted) Namespaces() ([]string, bool)                  { return nil, true }
+func (unrestricted) CanReadEverything() bool                       { return true }
+func (unrestricted) CanReadAllKindsIn(string) bool                 { return true }
 
 // maxNamespaceChecks bounds the checks one AnyNamespace call makes. A caller
 // who may read every namespace of a large cluster would otherwise cost a

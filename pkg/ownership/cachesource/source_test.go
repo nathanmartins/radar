@@ -1202,7 +1202,7 @@ func TestViewWithoutTheDynamicCacheAnswers(t *testing.T) {
 		v.Owner(r)
 		v.References(r)
 		v.Children(r, 0)
-		v.ControllerRoot(r)
+		v.ControllerChain(r)
 	}
 	if got := v.Owner(rs); got.Subject.Read.State != ownership.Present {
 		t.Errorf("the ReplicaSet without the dynamic cache reads %v", got.Subject.Read.State)
@@ -1210,7 +1210,7 @@ func TestViewWithoutTheDynamicCacheAnswers(t *testing.T) {
 	if got := v.Owner(widget); got.Subject.Read.State != ownership.Unavailable {
 		t.Errorf("a Widget without the dynamic cache reads %v", got.Subject.Read.State)
 	}
-	if err := v.Validate(); err != nil {
+	if err := v.ValidateAnswers(); err != nil {
 		t.Fatal(err)
 	}
 }
