@@ -3,9 +3,12 @@ package k8s
 import (
 	"errors"
 
+	appsv1 "k8s.io/api/apps/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/skyhook-io/radar/pkg/k8score"
 	"github.com/skyhook-io/radar/pkg/ownership"
 	"github.com/skyhook-io/radar/pkg/ownership/cachesource"
 	"github.com/skyhook-io/radar/pkg/readreason"
@@ -36,22 +39,52 @@ func OwnershipSource() ownership.Source { return ownershipSource }
 
 // AnswerOwnership answers rel's ownership for fetched, the object the caller
 // fetched, from the caches, for the caller access describes once the
-// session's catalog is known. A store replaced during the read (a
+// session's catalog is known. owner is the fetched object itself: when it is a
+// Deployment or an Argo Rollout, the ReplicaSets that only keep its rollback
+// history move to InactiveChildren, read from the answer's own caches so that
+// a context switch refuses them with it. A store replaced during the read (a
 // cluster-wide watch taking over from namespace ones), or an object that
 // changed between the view's reads, is worth one more try; caches replaced or
 // not ready leave the answer unavailable, as does a retry that fails too.
-func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
-	answerOwnership(ownershipSource, topology.ApplyOwnership, rel, fetched, access)
+func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation, owner metav1.Object, access func(*ownership.Catalog) ownership.Access) {
+	answerOwnership(ownershipSource, topology.ApplyOwnership, splitHistory(fetched.Ref.GroupKind(), owner), rel, fetched, access)
+}
+
+// splitHistory moves the ReplicaSets among rel's Children that only keep
+// owner's rollback history to InactiveChildren, reading them and the Pods
+// still naming them through the typed cache the session reads.
+func splitHistory(kind resourceid.GroupKind, owner metav1.Object) func(*topology.Relationships, ownership.Session) {
+	return func(rel *topology.Relationships, s ownership.Session) {
+		typed, ok := cachesource.TypedCache(s)
+		if !ok || owner == nil {
+			return
+		}
+		topology.SplitInactiveReplicaSets(rel, kind, owner.GetAnnotations(), func(namespace, name string) (*appsv1.ReplicaSet, bool, bool) {
+			obj, found, ok := typed.ReadableObject(k8score.ReplicaSets, namespace, name)
+			rs, isReplicaSet := obj.(*appsv1.ReplicaSet)
+			if !ok || !found || !isReplicaSet {
+				return nil, false, false
+			}
+			pods, ok := typed.ReadableDependents(k8score.Pods, []string{namespace}, string(rs.UID))
+			if !ok {
+				return nil, false, false
+			}
+			return rs, len(pods) > 0, true
+		})
+	}
 }
 
 // AnswerOwner is AnswerOwnership for rel's Owner alone, which is all a
 // resource context reads: it searches for no children and reads no member
 // list, so it costs a few reads however much the object owns.
 func AnswerOwner(rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
-	answerOwnership(ownershipSource, topology.ApplyOwner, rel, fetched, access)
+	answerOwnership(ownershipSource, topology.ApplyOwner, nil, rel, fetched, access)
 }
 
-func answerOwnership(source ownership.Source, apply func(*topology.Relationships, *ownership.View, ownership.Observation), rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
+// answerOwnership applies the view's answer to rel, then present (when set)
+// with the session, before validating: a refused answer takes what present
+// read with it.
+func answerOwnership(source ownership.Source, apply func(*topology.Relationships, *ownership.View, ownership.Observation), present func(*topology.Relationships, ownership.Session), rel *topology.Relationships, fetched ownership.Observation, access func(*ownership.Catalog) ownership.Access) {
 	reason := readreason.KindSyncPending
 	for range 2 {
 		session, err := source.Begin()
@@ -61,6 +94,9 @@ func answerOwnership(source ownership.Source, apply func(*topology.Relationships
 		}
 		v := ownership.NewView(session, access(session.Catalog()))
 		apply(rel, v, fetched)
+		if present != nil {
+			present(rel, session)
+		}
 		err = v.Validate()
 		switch {
 		case err == nil:

@@ -273,7 +273,7 @@ func OwnershipUnavailable(rel *Relationships, reason string) {
 }
 
 func clearOwnership(rel *Relationships) *OwnershipCoverage {
-	rel.Owner, rel.Owners, rel.Deployment, rel.Children, rel.Managers, rel.Manages = nil, nil, nil, nil, nil, nil
+	rel.Owner, rel.Owners, rel.Deployment, rel.Children, rel.InactiveChildren, rel.Managers, rel.Manages = nil, nil, nil, nil, nil, nil, nil
 	rel.Ownership = &OwnershipCoverage{}
 	return rel.Ownership
 }

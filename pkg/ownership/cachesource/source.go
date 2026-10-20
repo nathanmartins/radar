@@ -112,6 +112,18 @@ type session struct {
 	recordersRead func(kind resourceid.GroupKind, keys []string)
 }
 
+// TypedCache returns the typed cache s reads from, when this package began s.
+// What a caller reads through it comes from the same cluster connection as s's
+// own reads, and s's Validate refuses it with them once the caches are
+// replaced.
+func TypedCache(s ownership.Session) (*k8score.ResourceCache, bool) {
+	cs, ok := s.(*session)
+	if !ok || cs.caches.Typed == nil {
+		return nil, false
+	}
+	return cs.caches.Typed, true
+}
+
 type servedKey struct {
 	gvr       schema.GroupVersionResource
 	namespace string
