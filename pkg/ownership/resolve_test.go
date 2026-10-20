@@ -47,7 +47,6 @@ func resolve(t *testing.T, w ownershiptest.World, dependent ownershiptest.Object
 	return out
 }
 
-// Each case is how Kubernetes' garbage collector judges the reference.
 // A state's name goes on the wire; a value no constant names reads as
 // unknown rather than panicking.
 func TestOwnerStateNames(t *testing.T) {
@@ -73,6 +72,7 @@ func TestMembershipStateNames(t *testing.T) {
 	}
 }
 
+// Each case is how Kubernetes' garbage collector judges the reference.
 func TestResolveOwnerJudgesReferencesAsTheCollectorDoes(t *testing.T) {
 	w := ownershiptest.Fixture()
 	ns := func(group, kind, namespace, name string) resourceid.Ref {

@@ -117,15 +117,16 @@ func (s *session) typedCandidates(q *search, b resourceid.Builtin) {
 		return
 	}
 	read := a.Read
-	if a.AllNamespaces && target == nil {
-		// One informer holds the whole kind; Read is unset for it.
+	if a.AllNamespaces {
+		// One informer holds the whole kind, so its state is the kind's in
+		// every namespace the search names: one gap says so.
 		switch a.Readiness {
 		case k8score.KindReady:
 		case k8score.KindFailed:
-			q.gap(gk, "", readreason.KindSyncTimedOut)
+			q.gapEverywhere(gk, b.Namespaced, readreason.KindSyncTimedOut)
 			return
 		default:
-			q.gap(gk, "", readreason.KindSyncPending)
+			q.gapEverywhere(gk, b.Namespaced, readreason.KindSyncPending)
 			return
 		}
 	} else {
@@ -256,6 +257,19 @@ func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index string, k
 		}
 	}
 	if kind.Namespaced && !q.domain.AllNamespaces {
+		clusterWideOnly := !slices.ContainsFunc(versions, func(gvr schema.GroupVersionResource) bool {
+			_, byNamespace := s.namespaceWatches(gvr)
+			return byNamespace
+		})
+		if clusterWideOnly && !slices.ContainsFunc(versions, func(gvr schema.GroupVersionResource) bool {
+			_, ok := readVersion(gvr, "")
+			return ok
+		}) {
+			// Each version's one informer serves every namespace and none can
+			// answer, so the kind's state is the same in each: one gap.
+			q.gapEverywhere(gk, true, s.unansweredReason(versions, ""))
+			return
+		}
 		readNamespaces(q.namespaces)
 		return
 	}

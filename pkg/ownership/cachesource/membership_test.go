@@ -93,8 +93,9 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 			map[string]any{"id": "shop_web-podinfo__Service", "v": "v1"},
 		}}}), ownership.MembersRemote, []gitops.Member{{Kind: "Service", Namespace: "shop", Name: "web-podinfo"}}},
 		{"a HelmRelease applying elsewhere, without an inventory", manager(hr, map[string]any{"kubeConfig": map[string]any{"secretRef": map[string]any{"name": "prod"}}}, nil), ownership.MembersUnreadable, nil},
-		// spec.kubeConfig removed and the reconcile failed, or hasn't run:
-		// the inventory may still be the other cluster's.
+		// spec.kubeConfig removed and not yet reconciled, or a
+		// kustomize-controller reconcile of it failing: the inventory may
+		// still be the other cluster's.
 		{"a Kustomization whose inventory predates its spec", atGeneration(manager(ks, map[string]any{"prune": true}, map[string]any{"observedGeneration": int64(1), "inventory": map[string]any{"entries": []any{
 			map[string]any{"id": "shop_ui__Service", "v": "v1"},
 		}}}), 2), ownership.MembersUnreadable, nil},
@@ -371,8 +372,9 @@ func TestMemberStateCostDoesNotGrowWithTheList(t *testing.T) {
 }
 
 // A Flux object whose spec.kubeConfig was removed keeps the other cluster's
-// inventory until a reconcile of the new spec succeeds; Recorders must not
-// take its entries for this cluster's objects, or call the answer complete.
+// inventory until a reconcile applies the new spec; Recorders must not take
+// its entries for this cluster's objects, or call the answer complete, while
+// the controller hasn't observed that spec.
 func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 	for _, kind := range []resourceid.GroupKind{ownership.FluxKustomization, ownership.FluxHelmRelease} {
 		t.Run(kind.Kind, func(t *testing.T) {
