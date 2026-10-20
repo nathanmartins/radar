@@ -11,10 +11,10 @@ import (
 	"github.com/skyhook-io/radar/pkg/ownership"
 )
 
-// BenchmarkOwnerCandidatesWithManyUnwatchedKinds is a search on a cluster
+// BenchmarkDependentCandidatesWithManyUnwatchedKinds is a search on a cluster
 // serving 300 custom kinds Radar doesn't watch, as most clusters do: each is a
 // gap, and the session works out why once.
-func BenchmarkOwnerCandidatesWithManyUnwatchedKinds(b *testing.B) {
+func BenchmarkDependentCandidatesWithManyUnwatchedKinds(b *testing.B) {
 	f := newFixture(b, k8score.CacheConfig{}, func(f *fixture) {
 		fd := f.typed.Discovery().(*fakediscovery.FakeDiscovery)
 		var crds []metav1.APIResource
@@ -27,12 +27,12 @@ func BenchmarkOwnerCandidatesWithManyUnwatchedKinds(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if got := s.OwnerCandidates("uid-rs", ownership.Everywhere(), 0); len(got.Gaps) < 300 {
+	if got := s.DependentCandidates("uid-rs", ownership.Everywhere(), 0); len(got.Gaps) < 300 {
 		b.Fatalf("%d gaps, want one per unwatched kind", len(got.Gaps))
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		s.OwnerCandidates("uid-rs", ownership.Everywhere(), 0)
+		s.DependentCandidates("uid-rs", ownership.Everywhere(), 0)
 	}
 }

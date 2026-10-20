@@ -22,7 +22,7 @@ func TestCatalogMergesVersionsAndKeepsTheGarbageCollectorsKinds(t *testing.T) {
 	}, true)
 
 	got, ok := c.Kind(widget)
-	want := Kind{GroupKind: widget, Resource: "widgets", Namespaced: true, Versions: []string{"v1", "v1beta1"}, GarbageCollected: true}
+	want := CatalogKind{GroupKind: widget, Resource: "widgets", Namespaced: true, Versions: []string{"v1", "v1beta1"}, HasGCVerbs: true}
 	if !ok || !reflect.DeepEqual(got, want) {
 		t.Fatalf("Widget = %+v, %v; want %+v", got, ok, want)
 	}

@@ -11,8 +11,8 @@ type Member struct {
 // applies.
 type MemberList struct {
 	Entries []Member
-	// Destination is an Argo CD Application's destination namespace.
-	Destination string
+	// DestinationNamespace is an Argo CD Application's destination namespace.
+	DestinationNamespace string
 }
 
 // ArgoMembers reads an Application's status.resources, as of the destination
@@ -35,7 +35,7 @@ func argoMembers(app *unstructured.Unstructured, collect bool) (list MemberList,
 	if name == "" && server == "" {
 		return MemberList{}, false
 	}
-	list.Destination = destination
+	list.DestinationNamespace = destination
 	raw, _, err := unstructured.NestedFieldNoCopy(app.Object, "status", "resources")
 	if err != nil {
 		return MemberList{}, false

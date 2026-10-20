@@ -19,7 +19,7 @@ func Scan(w World) ownership.Source {
 
 type scanSource struct{ w World }
 
-func (s scanSource) Begin() (ownership.Session, error) {
+func (s scanSource) Begin() (ownership.ReadSession, error) {
 	session := scanSession{w: s.w, catalog: ownership.NewCatalog(s.w.Resources, !s.w.Partial), byRef: map[resourceid.Ref]Object{}, byKind: map[resourceid.GroupKind][]Object{}}
 	for _, o := range s.w.Objects {
 		session.byRef[o.Ref] = o
@@ -46,7 +46,7 @@ type scanSession struct {
 
 func (s scanSession) Catalog() *ownership.Catalog { return s.catalog }
 
-func (s scanSession) Validate() error { return nil }
+func (s scanSession) ValidateStores() error { return nil }
 
 // scope says whether discovery serves gk and whether it is namespaced.
 func (s scanSession) scope(gk resourceid.GroupKind) (namespaced, served bool) {
@@ -189,12 +189,12 @@ func (s scanSession) dependentKinds() []dependentKind {
 	return out
 }
 
-func (s scanSession) OwnerCandidates(uid types.UID, domain ownership.Domain, limit int) ownership.CandidateRead {
-	var r ownership.CandidateRead
+func (s scanSession) DependentCandidates(uid types.UID, domain ownership.SearchScope, limit int) ownership.DependentCandidatesRead {
+	var r ownership.DependentCandidatesRead
 	gap := func(gk resourceid.GroupKind, namespace string, reason readreason.Code) {
 		r.Gaps = append(r.Gaps, ownership.Gap{Kind: gk, Namespace: namespace, Reason: reason})
 	}
-	searches := domain.AllNamespaces || len(domain.Namespaces) > 0 || domain.ClusterScoped
+	searches := domain.AllNamespaces || len(domain.Namespaces) > 0 || domain.IncludeClusterScoped
 	if s.w.Partial && searches {
 		gap(resourceid.GroupKind{}, "", readreason.ReadError)
 	}
@@ -210,7 +210,7 @@ func (s scanSession) OwnerCandidates(uid types.UID, domain ownership.Domain, lim
 	}
 	var found []Object
 	for _, k := range s.dependents {
-		if k.namespaced && !domain.AllNamespaces && len(domain.Namespaces) == 0 || !k.namespaced && !domain.ClusterScoped {
+		if k.namespaced && !domain.AllNamespaces && len(domain.Namespaces) == 0 || !k.namespaced && !domain.IncludeClusterScoped {
 			continue
 		}
 		c := s.w.collection(k.gk)
@@ -260,7 +260,7 @@ func (s scanSession) OwnerCandidates(uid types.UID, domain ownership.Domain, lim
 	for gk, a := range s.ambiguousKinds {
 		event := gk.Kind == "Event" && (gk.Group == "" || gk.Group == "events.k8s.io")
 		namespacedSearched := domain.AllNamespaces || len(domain.Namespaces) > 0
-		if !event && (a.namespaced && namespacedSearched || a.clusterScoped && domain.ClusterScoped) {
+		if !event && (a.namespaced && namespacedSearched || a.clusterScoped && domain.IncludeClusterScoped) {
 			gap(gk, "", readreason.ReadError)
 		}
 	}
@@ -296,13 +296,9 @@ func observation(o Object) ownership.Observation {
 		APIVersion:      o.APIVersion,
 		UID:             o.UID,
 		ResourceVersion: o.ResourceVersion,
-		Finalizers:      slices.Clone(o.Finalizers),
 	}
 	for _, ref := range o.Owners {
 		obs.OwnerReferences = append(obs.OwnerReferences, *ref.DeepCopy())
-	}
-	if o.DeletionTimestamp != nil {
-		obs.DeletionTimestamp = o.DeletionTimestamp.DeepCopy()
 	}
 	return obs
 }
@@ -319,11 +315,11 @@ func compareGaps(a, b ownership.Gap) int {
 // names them.
 var managers = []resourceid.GroupKind{ownership.ArgoApplication, ownership.FluxHelmRelease, ownership.FluxKustomization}
 
-func (s scanSession) Inventory(manager resourceid.Ref) ownership.InventoryRead {
+func (s scanSession) Members(manager resourceid.Ref) ownership.MembersRead {
 	if !slices.Contains(managers, manager.GroupKind()) {
-		return ownership.InventoryRead{Manager: unavailable(manager, readreason.ReadError)}
+		return ownership.MembersRead{Manager: unavailable(manager, readreason.ReadError)}
 	}
-	r := ownership.InventoryRead{Manager: s.Object(manager)}
+	r := ownership.MembersRead{Manager: s.Object(manager)}
 	if r.Manager.State != ownership.Present {
 		return r
 	}
@@ -366,10 +362,10 @@ func (s scanSession) nameable(ref resourceid.Ref) readreason.Code {
 	return ""
 }
 
-func (s scanSession) Recorders(ref resourceid.Ref) ownership.RecorderRead {
-	var r ownership.RecorderRead
+func (s scanSession) RecordingManagers(ref resourceid.Ref) ownership.RecordingManagersRead {
+	var r ownership.RecordingManagersRead
 	if reason := s.nameable(ref); reason != "" {
-		r.Unnamed = true
+		r.TargetUnresolvable = true
 		r.Gaps = []ownership.Gap{{Kind: ref.GroupKind(), Namespace: ref.Namespace, Reason: reason}}
 		return r
 	}
@@ -412,14 +408,14 @@ func (s scanSession) Recorders(ref resourceid.Ref) ownership.RecorderRead {
 				r.Unreadable = append(r.Unreadable, o.Ref)
 			case !slices.Contains(o.Members, ref):
 			case o.Membership == ownership.MembersRecorded:
-				r.Recorders = append(r.Recorders, observation(o))
+				r.Managers = append(r.Managers, observation(o))
 			case o.Membership == ownership.MembersRemote:
-				r.Elsewhere = append(r.Elsewhere, o.Ref)
+				r.Remote = append(r.Remote, o.Ref)
 			}
 		}
 	}
-	slices.SortFunc(r.Recorders, func(a, b ownership.Observation) int { return compareRefs(a.Ref, b.Ref) })
-	slices.SortFunc(r.Elsewhere, compareRefs)
+	slices.SortFunc(r.Managers, func(a, b ownership.Observation) int { return compareRefs(a.Ref, b.Ref) })
+	slices.SortFunc(r.Remote, compareRefs)
 	slices.SortFunc(r.Unreadable, compareRefs)
 	slices.SortFunc(r.Gaps, compareGaps)
 	r.Gaps = slices.Compact(r.Gaps)

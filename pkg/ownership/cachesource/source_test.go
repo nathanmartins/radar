@@ -179,7 +179,7 @@ func (f *fixture) source() *Source {
 	return New(func() Caches { return f.caches })
 }
 
-func begin(t testing.TB, s *Source) ownership.Session {
+func begin(t testing.TB, s *Source) ownership.ReadSession {
 	t.Helper()
 	session, err := s.Begin()
 	if err != nil {
@@ -215,27 +215,11 @@ func TestObjectCopiesWhatOwnershipReads(t *testing.T) {
 		t.Fatal("changing an observation changed the cached object")
 	}
 
-	pod := s.Object(ref("", "Pod", "alpha", "web-1-a"))
-	if pod.State != ownership.Present || pod.Object.APIVersion != "v1" ||
-		pod.Object.DeletionTimestamp == nil || !pod.Object.DeletionTimestamp.Equal(&deletedAt) ||
-		!reflect.DeepEqual(pod.Object.Finalizers, []string{"foregroundDeletion"}) {
-		t.Fatalf("Pod = %v %+v; want its deletion timestamp and finalizers", pod.State, pod.Object)
-	}
-	cachedPod, err := f.caches.Typed.Pods().Pods("alpha").Get("web-1-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pod.Object.Finalizers[0] = "changed"
-	pod.Object.DeletionTimestamp.Time = time.Time{}
-	if cachedPod.Finalizers[0] != "foregroundDeletion" || !cachedPod.DeletionTimestamp.Equal(&deletedAt) {
-		t.Fatal("changing an observation changed the cached Pod")
+	if pod := s.Object(ref("", "Pod", "alpha", "web-1-a")); pod.State != ownership.Present || pod.Object.APIVersion != "v1" {
+		t.Fatalf("Pod = %v %+v", pod.State, pod.Object)
 	}
 	// The other direction, checked by identity: writing to the cache would
 	// race the informers that own it.
-	again := s.Object(ref("", "Pod", "alpha", "web-1-a"))
-	if &again.Object.Finalizers[0] == &cachedPod.Finalizers[0] || again.Object.DeletionTimestamp == cachedPod.DeletionTimestamp {
-		t.Fatal("an observation shares the cached Pod's finalizers or deletion timestamp")
-	}
 	if rs := s.Object(ref("apps", "ReplicaSet", "alpha", "web-1")); &rs.Object.OwnerReferences[0] == &cached.OwnerReferences[0] ||
 		rs.Object.OwnerReferences[0].Controller == cached.OwnerReferences[0].Controller ||
 		rs.Object.OwnerReferences[0].BlockOwnerDeletion == cached.OwnerReferences[0].BlockOwnerDeletion {
@@ -257,24 +241,15 @@ func TestObjectCopiesWhatOwnershipReads(t *testing.T) {
 	wantW2 := ownership.Observation{
 		Ref: ref("example.io", "Widget", "alpha", "w2"), APIVersion: "example.io/v1", UID: "uid-w2", ResourceVersion: "rv-w2",
 		OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: "web", UID: "uid-deploy", Controller: ptr(true), BlockOwnerDeletion: ptr(false)}},
-		Finalizers:      []string{"example.io/keep"},
 	}
-	if w2.State != ownership.Present || w2.Object.DeletionTimestamp == nil || !w2.Object.DeletionTimestamp.Equal(&deletedAt) {
-		t.Fatalf("w2 = %v %+v; want present with its deletion timestamp", w2.State, w2.Object)
-	}
-	gotW2 := w2.Object
-	gotW2.DeletionTimestamp = nil
-	if !reflect.DeepEqual(gotW2, wantW2) {
-		t.Fatalf("w2 = %+v\nwant %+v", gotW2, wantW2)
+	if w2.State != ownership.Present || !reflect.DeepEqual(w2.Object, wantW2) {
+		t.Fatalf("w2 = %v %+v\nwant present %+v", w2.State, w2.Object, wantW2)
 	}
 	*w2.Object.OwnerReferences[0].Controller = false
 	*w2.Object.OwnerReferences[0].BlockOwnerDeletion = true
-	w2.Object.Finalizers[0] = "changed"
-	w2.Object.DeletionTimestamp.Time = time.Time{}
 	reread := s.Object(ref("example.io", "Widget", "alpha", "w2"))
-	if !*reread.Object.OwnerReferences[0].Controller || *reread.Object.OwnerReferences[0].BlockOwnerDeletion ||
-		reread.Object.Finalizers[0] != "example.io/keep" || !reread.Object.DeletionTimestamp.Equal(&deletedAt) {
-		t.Fatal("changing an observation changed the cached Widget's owner flags, finalizers or deletion timestamp")
+	if !*reread.Object.OwnerReferences[0].Controller || *reread.Object.OwnerReferences[0].BlockOwnerDeletion {
+		t.Fatal("changing an observation changed the cached Widget's owner flags")
 	}
 
 	if node := s.Object(ref("", "Node", "", "n1")); node.State != ownership.Present || node.Object.UID != "uid-node" {
@@ -287,7 +262,7 @@ func TestObjectCopiesWhatOwnershipReads(t *testing.T) {
 			t.Fatalf("Event in %q = %v, want excluded", group, event.State)
 		}
 	}
-	if err := s.Validate(); err != nil {
+	if err := s.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -520,13 +495,13 @@ func TestValidateFailsOnceAReadStoreIsReplaced(t *testing.T) {
 	if got := before.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
 		t.Fatalf("Widget from alpha's watch = %v %+v", got.State, got.Gap)
 	}
-	if err := before.Validate(); err != nil {
+	if err := before.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 
 	p.run(t, f, true)
-	if err := before.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate after the replacement = %v, want ErrStoreReplaced", err)
+	if err := before.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores after the replacement = %v, want ErrStoreReplaced", err)
 	}
 	during := begin(t, source)
 	if got := during.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Unavailable || got.Gap.Reason != readreason.KindSyncPending {
@@ -540,7 +515,7 @@ func TestValidateFailsOnceAReadStoreIsReplaced(t *testing.T) {
 	if got := during.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
 		t.Fatalf("Widget from the loaded replacement = %v %+v", got.State, got.Gap)
 	}
-	if err := during.Validate(); err != nil {
+	if err := during.ValidateStores(); err != nil {
 		t.Fatalf("a session that read only the replacement: %v", err)
 	}
 }
@@ -553,8 +528,8 @@ func TestValidateFailsOnceTheStoreBehindAnAbsenceIsReplaced(t *testing.T) {
 		t.Fatalf("a miss in alpha's loaded watch = %v %+v", got.State, got.Gap)
 	}
 	p.run(t, f, true)
-	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate after the store behind an absence was replaced = %v, want ErrStoreReplaced", err)
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores after the store behind an absence was replaced = %v, want ErrStoreReplaced", err)
 	}
 }
 
@@ -571,8 +546,8 @@ func TestValidateFailsWhenReadsSpanAStoreAndItsReplacement(t *testing.T) {
 	if got := s.Object(ref("example.io", "Widget", "alpha", "missing")); got.State != ownership.Absent {
 		t.Fatalf("a miss in the loaded replacement = %v", got.State)
 	}
-	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate = %v; a session that read both stores must fail", err)
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores = %v; a session that read both stores must fail", err)
 	}
 }
 
@@ -584,13 +559,13 @@ func TestValidateFailsOnceTheCachesAreRetired(t *testing.T) {
 
 	s := begin(t, source)
 	current = second.caches
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after a switch: %v, want ErrCachesReplaced", err)
 	}
 
 	s = begin(t, source)
 	second.caches.Dynamic.Stop()
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache stopped: %v, want ErrCachesReplaced", err)
 	}
 	if _, err := source.Begin(); !errors.Is(err, ownership.ErrNotConnected) {
@@ -600,7 +575,7 @@ func TestValidateFailsOnceTheCachesAreRetired(t *testing.T) {
 	current = first.caches
 	s = begin(t, source)
 	first.caches.Typed.Stop()
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the typed cache stopped: %v, want ErrCachesReplaced", err)
 	}
 
@@ -622,26 +597,26 @@ func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
 		t.Fatalf("Widget before the dynamic cache and discovery = %v", got.State)
 	}
 	current = f.caches
-	if err := s.Validate(); err != nil {
-		t.Fatalf("Validate once the dynamic cache and discovery arrive = %v, want nil", err)
+	if err := s.ValidateStores(); err != nil {
+		t.Fatalf("ValidateStores once the dynamic cache and discovery arrive = %v, want nil", err)
 	}
 
 	other := newFixture(t, k8score.CacheConfig{}, nil)
 	s = begin(t, source)
 	current.Dynamic = other.caches.Dynamic
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache was replaced: %v, want ErrCachesReplaced", err)
 	}
 	current = f.caches
 	s = begin(t, source)
 	current.Discovery = other.caches.Discovery
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after discovery was replaced: %v, want ErrCachesReplaced", err)
 	}
 	current = f.caches
 	s = begin(t, source)
 	current.Dynamic = nil
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache went away: %v, want ErrCachesReplaced", err)
 	}
 	// A typed cache replaced by one still running is a switch even before
@@ -649,7 +624,7 @@ func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
 	current = f.caches
 	s = begin(t, source)
 	current.Typed = other.caches.Typed
-	if err := s.Validate(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the typed cache was replaced: %v, want ErrCachesReplaced", err)
 	}
 }
@@ -675,7 +650,7 @@ func TestSessionDoesNoIO(t *testing.T) {
 	} {
 		s.Object(r)
 	}
-	if err := s.Validate(); err != nil {
+	if err := s.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 	if after := len(f.typed.Actions()) + len(f.dynamic.Actions()); after != before {
@@ -970,8 +945,8 @@ func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatched(t *testing.T) 
 				s.Object(ref("example.io", first, "alpha", "anchor"))
 				f.watch(t, beta)
 				s.Object(ref("example.io", "Widget", "alpha", "target"))
-				if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-					t.Fatalf("Validate = %v; the session read v1 alone after v1beta1 came to be watched", err)
+				if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+					t.Fatalf("ValidateStores = %v; the session read v1 alone after v1beta1 came to be watched", err)
 				}
 				if fresh := begin(t, source).Object(ref("example.io", "Widget", "alpha", "target")); fresh.State != ownership.Unavailable {
 					t.Fatalf("a fresh session read %v; the two versions disagree", fresh.State)
@@ -986,7 +961,7 @@ func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatched(t *testing.T) 
 // the search covered one namespace or all of them.
 func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatched(t *testing.T) {
 	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	for name, domain := range map[string]ownership.Domain{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
+	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
@@ -995,10 +970,10 @@ func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatched(t *testing.T) {
 			})
 			f.watch(t, widgets)
 			s := begin(t, f.source())
-			s.OwnerCandidates("uid-deploy", domain, 0)
+			s.DependentCandidates("uid-deploy", domain, 0)
 			f.watch(t, beta)
-			if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-				t.Fatalf("Validate = %v; the search read v1 alone after v1beta1 came to be watched", err)
+			if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+				t.Fatalf("ValidateStores = %v; the search read v1 alone after v1beta1 came to be watched", err)
 			}
 		})
 	}
@@ -1009,7 +984,7 @@ func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatched(t *testing.T) {
 // session too.
 func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatchedInOneNamespace(t *testing.T) {
 	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	for name, domain := range map[string]ownership.Domain{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
+	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
@@ -1025,15 +1000,15 @@ func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatchedInOneNamespace(t
 			})
 			f.watch(t, widgets)
 			s := begin(t, f.source())
-			s.OwnerCandidates("uid-deploy", domain, 0)
+			s.DependentCandidates("uid-deploy", domain, 0)
 			if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
 				t.Fatal(err)
 			}
 			if !f.caches.Dynamic.WaitForSync(beta, 5*time.Second) {
 				t.Fatal("v1beta1's alpha watch never synced")
 			}
-			if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-				t.Fatalf("Validate = %v; v1beta1 came to be watched in alpha after the search read v1 alone", err)
+			if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+				t.Fatalf("ValidateStores = %v; v1beta1 came to be watched in alpha after the search read v1 alone", err)
 			}
 		})
 	}
@@ -1042,11 +1017,11 @@ func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatchedInOneNamespace(t
 // A search over two watched versions needs them to hold each object at the
 // same update, as a read does: one watch holding an adoption the other lacks
 // leaves the namespace loading.
-func TestOwnerCandidatesNeedVersionsToAgreeOnTheUpdate(t *testing.T) {
-	for name, domain := range map[string]ownership.Domain{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
+func TestDependentCandidatesNeedVersionsToAgreeOnTheUpdate(t *testing.T) {
+	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
 		t.Run(name, func(t *testing.T) {
 			f := versionsFixture(t, []runtime.Object{atVersion(widget("alpha", "w1", "uid-w1"), "41")}, []runtime.Object{betaWidget(atVersion(widget("alpha", "w1", "uid-w1"), "42"))}, nil)
-			got := begin(t, f.source()).OwnerCandidates("uid-deploy", domain, 0)
+			got := begin(t, f.source()).DependentCandidates("uid-deploy", domain, 0)
 			widget := resourceid.GroupKind{Group: "example.io", Kind: "Widget"}
 			listed := slices.ContainsFunc(got.Candidates, func(c ownership.Observation) bool { return c.Ref.GroupKind() == widget })
 			loading := slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widget && g.Reason == readreason.KindSyncPending })
@@ -1082,8 +1057,8 @@ func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatchedInItsNamespace(
 		t.Fatal(err)
 	}
 	waitUntil(t, "alpha's v1beta1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(beta, "alpha") })
-	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate = %v; want ErrStoreReplaced once v1beta1 serves alpha", err)
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores = %v; want ErrStoreReplaced once v1beta1 serves alpha", err)
 	}
 }
 
@@ -1164,7 +1139,7 @@ func TestObjectIgnoresAWatchOfAnUnservedVersion(t *testing.T) {
 	}
 }
 
-// Validate must notice a replaced store even when another version's store
+// ValidateStores must notice a replaced store even when another version's store
 // that answered the same read survives.
 func TestValidateFailsWhenOneVersionsStoreIsReplaced(t *testing.T) {
 	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
@@ -1189,15 +1164,15 @@ func TestValidateFailsWhenOneVersionsStoreIsReplaced(t *testing.T) {
 	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
 		t.Fatalf("Widget both versions hold = %v %+v", got.State, got.Gap)
 	}
-	if err := s.Validate(); err != nil {
+	if err := s.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 	promoteBeta.Store(true)
 	if err := f.caches.Dynamic.EnsureWatching(beta); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Validate(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("Validate after v1beta1's store was replaced = %v, want ErrStoreReplaced", err)
+	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
+		t.Fatalf("ValidateStores after v1beta1's store was replaced = %v, want ErrStoreReplaced", err)
 	}
 }
 
@@ -1257,7 +1232,7 @@ func TestBeginWithoutDiscoveryReadsTypedKinds(t *testing.T) {
 	if s.Catalog().Complete() {
 		t.Fatal("no discovery can't be a complete catalog")
 	}
-	if err := s.Validate(); err != nil {
+	if err := s.ValidateStores(); err != nil {
 		t.Fatal(err)
 	}
 }

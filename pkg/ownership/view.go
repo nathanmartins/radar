@@ -24,22 +24,22 @@ import (
 // if Validate passes once they are built. They share the view's captures, so
 // they must not be modified. A View is not safe for concurrent use.
 type View struct {
-	session Session
+	session ReadSession
 	access  Access
 	reads   map[resourceid.Ref]accessRead
 	// named holds the objects the view captured under each UID their owner
 	// references name.
 	named       map[types.UID][]resourceid.Ref
-	searches    map[resourceid.Ref]CandidateRead
+	searches    map[resourceid.Ref]DependentCandidatesRead
 	searched    map[types.UID]searchScope
-	inventories map[resourceid.Ref]InventoryRead
+	inventories map[resourceid.Ref]MembersRead
 	changed     bool
 }
 
 // searchScope is where the view answered for an owner's children, and the
 // gaps that answer reported.
 type searchScope struct {
-	domain Domain
+	domain SearchScope
 	gaps   []Gap
 }
 
@@ -49,15 +49,15 @@ type accessRead struct {
 }
 
 // NewView answers for the caller access describes, from s.
-func NewView(s Session, access Access) *View {
+func NewView(s ReadSession, access Access) *View {
 	return &View{
 		session:     s,
 		access:      access,
 		reads:       map[resourceid.Ref]accessRead{},
 		named:       map[types.UID][]resourceid.Ref{},
-		searches:    map[resourceid.Ref]CandidateRead{},
+		searches:    map[resourceid.Ref]DependentCandidatesRead{},
 		searched:    map[types.UID]searchScope{},
-		inventories: map[resourceid.Ref]InventoryRead{},
+		inventories: map[resourceid.Ref]MembersRead{},
 	}
 }
 
@@ -66,7 +66,7 @@ func NewView(s Session, access Access) *View {
 // if an object the view read contradicts a search it made, a seed replaced a
 // read an answer used, or a manager changed between its two reads.
 func (v *View) Validate() error {
-	if err := v.session.Validate(); err != nil {
+	if err := v.session.ValidateStores(); err != nil {
 		return err
 	}
 	if v.changed {
@@ -233,7 +233,7 @@ type ChildrenAnswer struct {
 	// Children are ordered by group, kind, namespace and name.
 	Children []Child
 	// Gaps are the parts of the search the source couldn't read (see
-	// CandidateRead.Gaps), objects the search found that the view couldn't
+	// DependentCandidatesRead.Gaps), objects the search found that the view couldn't
 	// read, and references to the subject's UID that may resolve to it but
 	// couldn't be resolved, such as one at a version discovery doesn't list.
 	Gaps []Gap
@@ -270,11 +270,11 @@ func (v *View) Children(ref resourceid.Ref, limit int) ChildrenAnswer {
 	if ref.Namespace == "" {
 		namespaces, all = v.access.Namespaces()
 	}
-	domain := Domain{AllNamespaces: all, Namespaces: namespaces, ClusterScoped: ref.Namespace == ""}
+	domain := SearchScope{AllNamespaces: all, Namespaces: namespaces, IncludeClusterScoped: ref.Namespace == ""}
 	a.Narrowed = v.narrows(ref)
 	found, searched := v.searches[ref]
 	if !searched {
-		found = v.session.OwnerCandidates(owner.UID, domain, 0)
+		found = v.session.DependentCandidates(owner.UID, domain, 0)
 		v.searches[ref] = found
 	}
 	candidates, unread, undecided := v.candidates(found, owner.UID, domain)
@@ -351,7 +351,7 @@ func mayResolveTo(res OwnerResolution, name string, ref resourceid.Ref) bool {
 // could tell whether they exist: the search says they name uid, so leaving
 // them out says nothing of whether they are children. undecided reports a
 // candidate whose access check failed.
-func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (out []Observation, unread []Gap, undecided bool) {
+func (v *View) candidates(found DependentCandidatesRead, uid types.UID, domain SearchScope) (out []Observation, unread []Gap, undecided bool) {
 	for _, c := range found.Candidates {
 		r, read := v.reads[c.Ref]
 		if !read {
@@ -378,13 +378,13 @@ func (v *View) candidates(found CandidateRead, uid types.UID, domain Domain) (ou
 
 // searchedIn reports whether a dependents search of domain covers ref's kind
 // and place.
-func (v *View) searchedIn(ref resourceid.Ref, domain Domain) bool {
+func (v *View) searchedIn(ref resourceid.Ref, domain SearchScope) bool {
 	k, known := v.session.Catalog().Kind(ref.GroupKind())
-	if !known || !k.GarbageCollected || IsEvent(ref.GroupKind()) {
+	if !known || !k.HasGCVerbs || IsEvent(ref.GroupKind()) {
 		return false
 	}
 	if !k.Namespaced {
-		return domain.ClusterScoped
+		return domain.IncludeClusterScoped
 	}
 	return domain.AllNamespaces || slices.Contains(domain.Namespaces, ref.Namespace)
 }
@@ -393,7 +393,7 @@ func (v *View) searchedIn(ref resourceid.Ref, domain Domain) bool {
 // within domain, so leaving it unread may have hidden a child. A gap on a
 // namespaced kind without a namespace covers every namespace of the domain,
 // and counts if the caller may read the kind in any of them.
-func (v *View) coversReadable(g Gap, domain Domain) bool {
+func (v *View) coversReadable(g Gap, domain SearchScope) bool {
 	if g.Kind.Kind == "" {
 		return true
 	}
@@ -519,7 +519,7 @@ func (v *View) Members(manager resourceid.Ref) MembersAnswer {
 	}
 	inventory, read := v.inventories[manager]
 	if !read {
-		inventory = v.session.Inventory(manager)
+		inventory = v.session.Members(manager)
 		v.inventories[manager] = inventory
 	}
 	captured := subject.Read.Object

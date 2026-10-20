@@ -28,8 +28,8 @@ func conform(t *testing.T, w ownershiptest.World) {
 	before := r.storedObjects()
 	got := begin(t, r.source())
 	ownershiptest.Conform(t, want, got, ownershiptest.QueriesFor(w))
-	if err := got.Validate(); err != nil {
-		t.Fatalf("a quiet cache's session failed Validate: %v", err)
+	if err := got.ValidateStores(); err != nil {
+		t.Fatalf("a quiet cache's session failed ValidateStores: %v", err)
 	}
 	resolveAlike(t, w, want, got)
 	viewsAlike(t, w, want, got)
@@ -41,7 +41,7 @@ func conform(t *testing.T, w ownershiptest.World) {
 // resolveAlike checks that ResolveOwner judges every owner reference of every
 // object in w the same over both sessions: the cache source changes nothing a
 // rule can see.
-func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session) {
+func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.ReadSession) {
 	t.Helper()
 	for _, o := range w.Objects {
 		dependent := want.Object(o.Ref)
@@ -60,7 +60,7 @@ func resolveAlike(t *testing.T, w ownershiptest.World, want, got ownership.Sessi
 // viewsAlike checks that a View gives every answer about every object in w
 // alike over both sessions, for a caller who may read everything and for one
 // who may read less, and that a quiet cache's view holds.
-func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.Session) {
+func viewsAlike(t *testing.T, w ownershiptest.World, want, got ownership.ReadSession) {
 	t.Helper()
 	for _, caller := range []ownership.Access{ownership.Unrestricted(), alphaOnly{}} {
 		a, b := ownership.NewView(want, caller), ownership.NewView(got, caller)

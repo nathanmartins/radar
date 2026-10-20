@@ -23,16 +23,16 @@ type candidate struct {
 	obj        apiruntime.Object
 }
 
-// search collects one OwnerCandidates call's candidates and gaps.
+// search collects one DependentCandidates call's candidates and gaps.
 type search struct {
 	uid        string
-	domain     ownership.Domain
+	domain     ownership.SearchScope
 	namespaces []string
 	found      []candidate
 	gaps       []ownership.Gap
 }
 
-func (s *session) OwnerCandidates(uid types.UID, domain ownership.Domain, limit int) ownership.CandidateRead {
+func (s *session) DependentCandidates(uid types.UID, domain ownership.SearchScope, limit int) ownership.DependentCandidatesRead {
 	q := &search{uid: string(uid), domain: domain}
 	if !domain.AllNamespaces {
 		for _, ns := range slices.Compact(slices.Sorted(slices.Values(domain.Namespaces))) {
@@ -64,7 +64,7 @@ func (s *session) OwnerCandidates(uid types.UID, domain ownership.Domain, limit 
 		}
 	}
 	slices.SortFunc(q.found, func(a, b candidate) int { return compareRefs(a.ref, b.ref) })
-	r := ownership.CandidateRead{Gaps: q.gaps}
+	r := ownership.DependentCandidatesRead{Gaps: q.gaps}
 	if limit > 0 && len(q.found) > limit {
 		q.found, r.Truncated = q.found[:limit], true
 	}
@@ -159,7 +159,7 @@ func (s *session) typedCandidates(q *search, b resourceid.Builtin) {
 	}
 }
 
-func (s *session) dynamicCandidates(q *search, kind ownership.Kind) {
+func (s *session) dynamicCandidates(q *search, kind ownership.CatalogKind) {
 	s.dynamicIndexed(q, kind, k8score.OwnerUIDIndex, []string{q.uid}, func(gvr schema.GroupVersionResource, u *unstructured.Unstructured) {
 		q.add(kind.GroupKind, gvr.GroupVersion().String(), u, u.GetNamespace(), u.GetName())
 	})
@@ -171,7 +171,7 @@ func (s *session) dynamicCandidates(q *search, kind ownership.Kind) {
 // it can't read. Every watched version the catalog serves is read, and
 // versions that disagree leave their namespace unread: one of their watches
 // hasn't caught up.
-func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index string, keys []string, found func(schema.GroupVersionResource, *unstructured.Unstructured)) {
+func (s *session) dynamicIndexed(q *search, kind ownership.CatalogKind, index string, keys []string, found func(schema.GroupVersionResource, *unstructured.Unstructured)) {
 	gk := kind.GroupKind
 	if s.caches.Dynamic == nil {
 		q.gapEverywhere(gk, kind.Namespaced, readreason.RadarKindNotCollected)
@@ -315,7 +315,7 @@ func (s *session) dynamicIndexed(q *search, kind ownership.Kind, index string, k
 // unwatchedReason reports a kind none of whose served versions is watched,
 // and why, as of the session's first look: most kinds a cluster serves aren't
 // watched, and every search would otherwise ask again.
-func (s *session) unwatchedReason(kind ownership.Kind, versions []schema.GroupVersionResource) (readreason.Code, bool) {
+func (s *session) unwatchedReason(kind ownership.CatalogKind, versions []schema.GroupVersionResource) (readreason.Code, bool) {
 	gr := schema.GroupResource{Group: kind.Group, Resource: kind.Resource}
 	if reason, seen := s.unwatched[gr]; seen {
 		return reason, reason != ""

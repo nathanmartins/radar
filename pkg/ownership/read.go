@@ -1,8 +1,6 @@
 package ownership
 
 import (
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -60,9 +58,7 @@ type Observation struct {
 	// observations of the same object.
 	ResourceVersion string
 	// OwnerReferences are the object's own, in order and unvalidated.
-	OwnerReferences   []metav1.OwnerReference
-	DeletionTimestamp *metav1.Time
-	Finalizers        []string
+	OwnerReferences []metav1.OwnerReference
 }
 
 // Observe copies what ownership needs out of m, the object at ref read at
@@ -73,16 +69,12 @@ func Observe(ref resourceid.Ref, apiVersion string, m metav1.Object) Observation
 		APIVersion:      apiVersion,
 		UID:             m.GetUID(),
 		ResourceVersion: m.GetResourceVersion(),
-		Finalizers:      slices.Clone(m.GetFinalizers()),
 	}
 	if refs := m.GetOwnerReferences(); len(refs) > 0 {
 		o.OwnerReferences = make([]metav1.OwnerReference, len(refs))
 		for i := range refs {
 			refs[i].DeepCopyInto(&o.OwnerReferences[i])
 		}
-	}
-	if ts := m.GetDeletionTimestamp(); ts != nil {
-		o.DeletionTimestamp = ts.DeepCopy()
 	}
 	return o
 }

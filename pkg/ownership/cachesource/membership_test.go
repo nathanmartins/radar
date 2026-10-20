@@ -134,11 +134,11 @@ func TestMembersReadTheShapesControllersWrite(t *testing.T) {
 	}
 }
 
-// Recorders is Inventory inverted: over a fully collected World, every member
+// RecordingManagers is Members inverted: over a fully collected World, every member
 // a manager lists names it, as a recorder or, for a remote manager, as
 // elsewhere; and every manager so named lists the member. This holds of the
 // source whatever the oracle says.
-func TestRecordersInvertInventory(t *testing.T) {
+func TestRecordingManagersInvertMembers(t *testing.T) {
 	worlds := map[string]ownershiptest.World{"fixture": ownershiptest.Fixture()}
 	for seed := range uint64(10) {
 		w := ownershiptest.Generate(seed)
@@ -157,34 +157,34 @@ func TestRecordersInvertInventory(t *testing.T) {
 			listed := map[resourceid.Ref][]resourceid.Ref{}
 			remote := map[resourceid.Ref]bool{}
 			for _, m := range q.Managers {
-				inv := s.Inventory(m)
+				inv := s.Members(m)
 				remote[m] = inv.Membership == ownership.MembersRemote
 				for _, member := range inv.Members {
 					listed[m] = append(listed[m], member)
-					rec := s.Recorders(member)
-					named := slices.ContainsFunc(rec.Recorders, func(o ownership.Observation) bool { return o.Ref == m })
+					rec := s.RecordingManagers(member)
+					named := slices.ContainsFunc(rec.Managers, func(o ownership.Observation) bool { return o.Ref == m })
 					if remote[m] {
-						named = slices.Contains(rec.Elsewhere, m)
+						named = slices.Contains(rec.Remote, m)
 					}
 					if !named && len(rec.Gaps) == 0 {
-						t.Errorf("%v (%v) lists %v, but Recorders(%v) = %+v", m, inv.Membership, member, member, rec)
+						t.Errorf("%v (%v) lists %v, but RecordingManagers(%v) = %+v", m, inv.Membership, member, member, rec)
 					}
 				}
 			}
 			for _, ref := range q.Refs {
-				rec := s.Recorders(ref)
+				rec := s.RecordingManagers(ref)
 				var named []resourceid.Ref
-				for _, o := range rec.Recorders {
+				for _, o := range rec.Managers {
 					named = append(named, o.Ref)
 				}
 				for _, m := range named {
 					if remote[m] || !slices.Contains(listed[m], ref) {
-						t.Errorf("Recorders(%v) names %v as a recorder; its Inventory lists %v", ref, m, listed[m])
+						t.Errorf("RecordingManagers(%v) names %v as a recorder; its Members lists %v", ref, m, listed[m])
 					}
 				}
-				for _, m := range rec.Elsewhere {
+				for _, m := range rec.Remote {
 					if !remote[m] || !slices.Contains(listed[m], ref) {
-						t.Errorf("Recorders(%v) names %v as elsewhere; its Inventory lists %v", ref, m, listed[m])
+						t.Errorf("RecordingManagers(%v) names %v as remote; its Members lists %v", ref, m, listed[m])
 					}
 				}
 			}
@@ -195,7 +195,7 @@ func TestRecordersInvertInventory(t *testing.T) {
 // A built-in kind's scope is its own, unless discovery is ambiguous about the
 // kind or serves it with the other scope: then no entry names it for certain,
 // and its entries stay as recorded. The oracle says the same.
-func TestRecordersOfABuiltInDiscoveryDisputes(t *testing.T) {
+func TestRecordingManagersOfABuiltInDiscoveryDisputes(t *testing.T) {
 	reader := resourceid.Ref{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "reader"}
 	clusterRole := reader.GroupKind()
 	gc := []string{"create", "delete", "get", "list", "patch", "update", "watch"}
@@ -224,12 +224,12 @@ func TestRecordersOfABuiltInDiscoveryDisputes(t *testing.T) {
 			scan, _ := ownershiptest.Scan(w).Begin()
 			cache := begin(t, render(t, w).source())
 			want := []ownership.Gap{{Kind: clusterRole, Reason: readreason.ReadError}}
-			for source, s := range map[string]ownership.Session{"scan": scan, "cache": cache} {
-				if got := s.Recorders(reader); len(got.Recorders) != 0 || !got.Unnamed || !slices.Equal(got.Gaps, want) {
-					t.Errorf("%s: Recorders(%v) = %+v, want it unnamed with only %+v", source, reader, got, want)
+			for source, s := range map[string]ownership.ReadSession{"scan": scan, "cache": cache} {
+				if got := s.RecordingManagers(reader); len(got.Managers) != 0 || !got.TargetUnresolvable || !slices.Equal(got.Gaps, want) {
+					t.Errorf("%s: RecordingManagers(%v) = %+v, want the target unresolvable with only %+v", source, reader, got, want)
 				}
-				if got := s.Inventory(app.Ref); got.Membership != ownership.MembersRecorded || !slices.Equal(got.Members, []resourceid.Ref{reader}) {
-					t.Errorf("%s: Inventory = %v %v, want the entry as recorded", source, got.Membership, got.Members)
+				if got := s.Members(app.Ref); got.Membership != ownership.MembersRecorded || !slices.Equal(got.Members, []resourceid.Ref{reader}) {
+					t.Errorf("%s: Members = %v %v, want the entry as recorded", source, got.Membership, got.Members)
 				}
 			}
 		})
@@ -238,22 +238,22 @@ func TestRecordersOfABuiltInDiscoveryDisputes(t *testing.T) {
 
 // A manager kind two resources of its group serve can't be read as either, so
 // a manager of that kind may record the object unseen.
-func TestRecordersLeaveAnAmbiguousManagerKindUnread(t *testing.T) {
+func TestRecordingManagersLeaveAnAmbiguousManagerKindUnread(t *testing.T) {
 	w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}}
 	for _, k := range ownershiptest.Kinds {
 		w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
 	}
 	w.Resources = append(w.Resources, ownership.ServedResource{Group: ownership.ArgoApplication.Group, Version: "v1alpha1", Kind: ownership.ArgoApplication.Kind,
 		Resource: "otherapplications", Namespaced: true, Verbs: []string{"delete", "get", "list", "watch"}})
-	got := begin(t, render(t, w).source()).Recorders(resourceid.Ref{Kind: "ConfigMap", Namespace: "alpha", Name: "cfg"})
+	got := begin(t, render(t, w).source()).RecordingManagers(resourceid.Ref{Kind: "ConfigMap", Namespace: "alpha", Name: "cfg"})
 	if want := (ownership.Gap{Kind: ownership.ArgoApplication, Reason: readreason.ReadError}); !slices.Contains(got.Gaps, want) || got.Complete() {
-		t.Fatalf("Recorders = %+v, complete %v; want the gap %+v", got, got.Complete(), want)
+		t.Fatalf("RecordingManagers = %+v, complete %v; want the gap %+v", got, got.Complete(), want)
 	}
 }
 
 // An answer is complete only when no remote manager may record the object
 // and no manager's list is unreadable.
-func TestRecordersAreCompleteOnlyWithoutDoubt(t *testing.T) {
+func TestRecordingManagersAreCompleteOnlyWithoutDoubt(t *testing.T) {
 	cfg := resourceid.Ref{Kind: "ConfigMap", Namespace: "alpha", Name: "cfg"}
 	app := func(name string, state ownership.MembershipState, members ...resourceid.Ref) ownershiptest.Object {
 		return ownershiptest.Object{
@@ -277,9 +277,9 @@ func TestRecordersAreCompleteOnlyWithoutDoubt(t *testing.T) {
 			for _, k := range ownershiptest.Kinds {
 				w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
 			}
-			got := begin(t, render(t, w).source()).Recorders(cfg)
-			if got.Complete() != tc.complete || len(got.Recorders) != 1 {
-				t.Fatalf("Recorders = %+v: complete %v, want %v", got, got.Complete(), tc.complete)
+			got := begin(t, render(t, w).source()).RecordingManagers(cfg)
+			if got.Complete() != tc.complete || len(got.Managers) != 1 {
+				t.Fatalf("RecordingManagers = %+v: complete %v, want %v", got, got.Complete(), tc.complete)
 			}
 		})
 	}
@@ -300,35 +300,35 @@ func TestMembersOfRBACNamesWithColons(t *testing.T) {
 		w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
 	}
 	s := begin(t, render(t, w).source())
-	if got := s.Inventory(release.Ref); !slices.Equal(got.Members, []resourceid.Ref{role}) {
-		t.Fatalf("Inventory = %v, want %v", got.Members, role)
+	if got := s.Members(release.Ref); !slices.Equal(got.Members, []resourceid.Ref{role}) {
+		t.Fatalf("Members = %v, want %v", got.Members, role)
 	}
-	got := s.Recorders(role)
-	if len(got.Recorders) != 1 || got.Recorders[0].Ref != release.Ref || !got.Complete() {
-		t.Fatalf("Recorders(%v) = %+v, want %v alone", role, got, release.Ref)
+	got := s.RecordingManagers(role)
+	if len(got.Managers) != 1 || got.Managers[0].Ref != release.Ref || !got.Complete() {
+		t.Fatalf("RecordingManagers(%v) = %+v, want %v alone", role, got, release.Ref)
 	}
 }
 
-// Recorders reads each manager kind once, asking for the unreadable key and
-// every reading of the object in the same read. That one read takes all of them
+// RecordingManagers reads each manager kind once, asking for the unreadable key and
+// every placement of the object in the same read. That one read takes all of them
 // in one pass under the store's lock (TestReadableIndexedReadsItsKeysTogether),
 // so a manager changing during the search, from an unreadable list to one
-// naming the object or from one reading of its entry to another, is found in
+// naming the object or from one placement of its entry to another, is found in
 // one of its states; one read per key could land between two changes and find
 // it in none.
-func TestRecordersReadEachManagerKindOnce(t *testing.T) {
+func TestRecordingManagersReadEachManagerKindOnce(t *testing.T) {
 	s := begin(t, render(t, ownershiptest.Fixture()).source()).(*session)
 	reads := map[resourceid.GroupKind][][]string{}
-	s.recordersRead = func(kind resourceid.GroupKind, keys []string) {
+	s.recordingManagersRead = func(kind resourceid.GroupKind, keys []string) {
 		reads[kind] = append(reads[kind], slices.Clone(keys))
 	}
-	s.Recorders(resourceid.Ref{Group: "example.io", Kind: "Widget", Namespace: "alpha", Name: "w1"})
+	s.RecordingManagers(resourceid.Ref{Group: "example.io", Kind: "Widget", Namespace: "alpha", Name: "w1"})
 	want := []string{
 		k8score.UnreadableMembersKey,
 		k8score.MemberKey(k8score.MemberAsRecorded, "example.io", "Widget", "alpha", "w1"),
 		k8score.MemberKey(k8score.MemberInDestination, "example.io", "Widget", "alpha", "w1"),
 	}
-	for _, gk := range ownership.RecordingManagers() {
+	for _, gk := range ownership.RecordingManagerKinds() {
 		if got := reads[gk]; len(got) != 1 || !slices.Equal(got[0], want) {
 			t.Errorf("%v read %q, want one read of %q", gk, got, want)
 		}
@@ -372,10 +372,10 @@ func TestMemberStateCostDoesNotGrowWithTheList(t *testing.T) {
 }
 
 // A Flux object whose spec.kubeConfig was removed keeps the other cluster's
-// inventory until a reconcile applies the new spec; Recorders must not take
+// inventory until a reconcile applies the new spec; RecordingManagers must not take
 // its entries for this cluster's objects, or call the answer complete, while
 // the controller hasn't observed that spec.
-func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
+func TestRecordingManagersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 	for _, kind := range []resourceid.GroupKind{ownership.FluxKustomization, ownership.FluxHelmRelease} {
 		t.Run(kind.Kind, func(t *testing.T) {
 			target := resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}
@@ -404,13 +404,13 @@ func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 			deadline := time.Now().Add(5 * time.Second)
 			for {
 				s := begin(t, r.source())
-				if inv := s.Inventory(m.Ref); inv.Manager.Object.ResourceVersion == "2" {
+				if inv := s.Members(m.Ref); inv.Manager.Object.ResourceVersion == "2" {
 					if inv.Membership != ownership.MembersUnreadable {
-						t.Fatalf("Inventory = %v", inv.Membership)
+						t.Fatalf("Members = %v", inv.Membership)
 					}
-					got := s.Recorders(target)
-					if len(got.Recorders) > 0 || got.Complete() || !slices.Contains(got.Unreadable, m.Ref) {
-						t.Fatalf("Recorders(%v) = %+v, complete %v; the list may be the other cluster's", target, got, got.Complete())
+					got := s.RecordingManagers(target)
+					if len(got.Managers) > 0 || got.Complete() || !slices.Contains(got.Unreadable, m.Ref) {
+						t.Fatalf("RecordingManagers(%v) = %+v, complete %v; the list may be the other cluster's", target, got, got.Complete())
 					}
 					return
 				}
@@ -427,7 +427,7 @@ func TestRecordersDistrustAFluxInventoryFromBeforeItsSpec(t *testing.T) {
 // managers recording it; that costs the same however long the list naming it
 // is, RBAC names Flux encodes included. Counting allocations can't tell:
 // building a list sized up front is one allocation at any length.
-func TestRecordersCostDoesNotGrowWithTheManagersList(t *testing.T) {
+func TestRecordingManagersCostDoesNotGrowWithTheManagersList(t *testing.T) {
 	rbac := func(name string) resourceid.Ref {
 		return resourceid.Ref{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding", Namespace: "shop", Name: name}
 	}
@@ -456,14 +456,14 @@ func TestRecordersCostDoesNotGrowWithTheManagersList(t *testing.T) {
 					w.Collection[item.GroupKind] = ownershiptest.Collection{OnDemand: !item.Typed}
 				}
 				s := begin(t, render(t, w).source())
-				if got := s.Recorders(target); len(got.Recorders) != 1 {
-					t.Fatalf("Recorders(%v) = %+v", target, got)
+				if got := s.RecordingManagers(target); len(got.Managers) != 1 {
+					t.Fatalf("RecordingManagers(%v) = %+v", target, got)
 				}
 				const searches = 20
 				var before, after runtime.MemStats
 				runtime.ReadMemStats(&before)
 				for range searches {
-					s.Recorders(target)
+					s.RecordingManagers(target)
 				}
 				runtime.ReadMemStats(&after)
 				return (after.TotalAlloc - before.TotalAlloc) / searches
@@ -479,8 +479,8 @@ func TestRecordersCostDoesNotGrowWithTheManagersList(t *testing.T) {
 // A manager kind watched at two versions can hold one manager at two updates
 // while a watch catches up; here the newer copy's list may be another
 // cluster's. A search must not classify the older copy and call the answer
-// complete, just as Inventory doesn't answer from it.
-func TestRecordersNeedManagerVersionsToAgreeOnTheUpdate(t *testing.T) {
+// complete, just as Members doesn't answer from it.
+func TestRecordingManagersNeedManagerVersionsToAgreeOnTheUpdate(t *testing.T) {
 	stable := schema.GroupVersionResource{Group: ownership.FluxHelmRelease.Group, Version: "v2", Resource: "helmreleases"}
 	beta := stable
 	beta.Version = "v2beta1"
@@ -506,10 +506,10 @@ func TestRecordersNeedManagerVersionsToAgreeOnTheUpdate(t *testing.T) {
 	f.watch(t, stable)
 	f.watch(t, beta)
 	s := begin(t, f.source())
-	if inv := s.Inventory(resourceid.Ref{Group: stable.Group, Kind: ownership.FluxHelmRelease.Kind, Namespace: "ops", Name: "m"}); inv.Manager.State != ownership.Unavailable {
-		t.Fatalf("Inventory = %+v; the two versions disagree", inv)
+	if inv := s.Members(resourceid.Ref{Group: stable.Group, Kind: ownership.FluxHelmRelease.Kind, Namespace: "ops", Name: "m"}); inv.Manager.State != ownership.Unavailable {
+		t.Fatalf("Members = %+v; the two versions disagree", inv)
 	}
-	if got := s.Recorders(resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}); got.Complete() || len(got.Recorders) != 0 {
-		t.Fatalf("Recorders = %+v, complete %v; it classified the older copy", got, got.Complete())
+	if got := s.RecordingManagers(resourceid.Ref{Kind: "Service", Namespace: "shop", Name: "ui"}); got.Complete() || len(got.Managers) != 0 {
+		t.Fatalf("RecordingManagers = %+v, complete %v; it classified the older copy", got, got.Complete())
 	}
 }

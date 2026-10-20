@@ -1,39 +1,39 @@
 package ownership
 
-// Domain is where a search for dependents looks. Nothing is implied: the zero
-// Domain searches nothing.
-type Domain struct {
+// SearchScope is where a search for dependents looks. Nothing is implied: the zero
+// SearchScope searches nothing.
+type SearchScope struct {
 	// AllNamespaces searches every namespace of the namespaced kinds;
 	// otherwise Namespaces lists the ones to search. Only AllNamespaces means
 	// every namespace: an empty entry in Namespaces is not one.
 	AllNamespaces bool
 	Namespaces    []string
-	// ClusterScoped also searches the cluster-scoped kinds.
-	ClusterScoped bool
+	// IncludeClusterScoped also searches the cluster-scoped kinds.
+	IncludeClusterScoped bool
 }
 
 // Everywhere is where the garbage collector looks for a UID's dependents:
 // every namespace and the cluster-scoped kinds.
-func Everywhere() Domain {
-	return Domain{AllNamespaces: true, ClusterScoped: true}
+func Everywhere() SearchScope {
+	return SearchScope{AllNamespaces: true, IncludeClusterScoped: true}
 }
 
 // InNamespace searches one namespace, where a namespaced owner's dependents
 // can validly be.
-func InNamespace(namespace string) Domain {
-	return Domain{Namespaces: []string{namespace}}
+func InNamespace(namespace string) SearchScope {
+	return SearchScope{Namespaces: []string{namespace}}
 }
 
 // Searches reports whether d searches kinds of this scope.
-func (d Domain) Searches(namespaced bool) bool {
+func (d SearchScope) Searches(namespaced bool) bool {
 	if namespaced {
 		return d.AllNamespaces || len(d.Namespaces) > 0
 	}
-	return d.ClusterScoped
+	return d.IncludeClusterScoped
 }
 
-// CandidateRead is what a search for one UID's dependents found.
-type CandidateRead struct {
+// DependentCandidatesRead is what a search for one UID's dependents found.
+type DependentCandidatesRead struct {
 	// Candidates are the objects in the domain with an owner reference naming
 	// the UID, whatever the reference's other fields say, ordered by group,
 	// kind, namespace and name.
@@ -52,6 +52,6 @@ type CandidateRead struct {
 
 // Complete reports whether Candidates are all of the UID's dependents in the
 // domain.
-func (r CandidateRead) Complete() bool {
+func (r DependentCandidatesRead) Complete() bool {
 	return len(r.Gaps) == 0 && !r.Truncated
 }

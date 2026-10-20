@@ -203,7 +203,7 @@ func TestLiveParity(t *testing.T) {
 	// collected kind, every UID an object has or names plus one nothing has,
 	// and domains around a sample of namespaces. Each question is asked once.
 	questions := func(w ownershiptest.World) ownershiptest.Queries {
-		q := ownershiptest.Queries{Domains: []ownership.Domain{ownership.Everywhere(), {Namespaces: []string{""}, ClusterScoped: true}}, Limits: []int{0}}
+		q := ownershiptest.Queries{Domains: []ownership.SearchScope{ownership.Everywhere(), {Namespaces: []string{""}, IncludeClusterScoped: true}}, Limits: []int{0}}
 		refs := map[resourceid.Ref]bool{}
 		uids := map[types.UID]bool{"uid-nothing-has": true}
 		var namespaces []string
@@ -303,8 +303,8 @@ func TestLiveParity(t *testing.T) {
 					fmt.Sprintf("%s: listed %v %v %+v, cache %v %v %+v", question, a.State, a.Ref, a.Gap, b.State, b.Ref, b.Gap))
 			}
 		}
-		if err := got.Validate(); err != nil {
-			t.Errorf("pass %d: Validate: %v", pass, err)
+		if err := got.ValidateStores(); err != nil {
+			t.Errorf("pass %d: ValidateStores: %v", pass, err)
 		}
 		states, members := map[ownership.MembershipState]int{}, 0
 		for _, o := range w.Objects {

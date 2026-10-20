@@ -21,32 +21,32 @@ const GitOpsMembersIndex = "gitopsMembers"
 // status lists no members Radar can trust, any of which may name any object.
 const UnreadableMembersKey = "\x00unreadable"
 
-// MemberReading is one way to read a status entry's namespace. A built-in
-// kind's scope is fixed, so the index files its entries by the object they
-// mean. For any other kind the index can't ask discovery the scope — an index
-// function runs when an object changes, not when discovery does — so it files
-// an entry under each reading the kind's scope could call for, and a reader
-// looks up only the readings the scope discovery serves the kind with calls
-// for.
-type MemberReading byte
+// MemberPlacement is one way to place a status entry: the namespace its object
+// is taken to be in. A built-in kind's scope is fixed, so the index files its
+// entries by the object they mean. For any other kind the index can't ask
+// discovery the scope — an index function runs when an object changes, not
+// when discovery does — so it files an entry under each placement the kind's
+// scope could call for, and a reader looks up only the placements the scope
+// discovery serves the kind with calls for.
+type MemberPlacement byte
 
 const (
 	// MemberMeant: the object an entry of a built-in kind names.
-	MemberMeant MemberReading = 'm'
+	MemberMeant MemberPlacement = 'm'
 	// MemberAsRecorded: the namespace the entry records.
-	MemberAsRecorded MemberReading = 'r'
+	MemberAsRecorded MemberPlacement = 'r'
 	// MemberClusterScoped: an entry recording a namespace, read for a
 	// cluster-scoped kind, which ignores it.
-	MemberClusterScoped MemberReading = 'c'
+	MemberClusterScoped MemberPlacement = 'c'
 	// MemberInDestination: an Argo CD entry recording no namespace, read for
 	// a namespaced kind, which is then in the Application's destination
 	// namespace.
-	MemberInDestination MemberReading = 'd'
+	MemberInDestination MemberPlacement = 'd'
 )
 
 // MemberKey is the GitOpsMembersIndex key of an entry naming group, kind,
 // namespace and name, read r's way.
-func MemberKey(r MemberReading, group, kind, namespace, name string) string {
+func MemberKey(r MemberPlacement, group, kind, namespace, name string) string {
 	return strings.Join([]string{string(r), group, kind, namespace, name}, "\x00")
 }
 
@@ -58,7 +58,7 @@ var gitopsMembersIndexers = map[schema.GroupResource]cache.Indexers{
 	{Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"}: {GitOpsMembersIndex: memberKeys(gitops.FluxMembers)},
 }
 
-// memberKeys files a manager under each entry of its list, in every reading
+// memberKeys files a manager under each entry of its list, in every placement
 // the entry's kind's scope could call for.
 func memberKeys(members func(*unstructured.Unstructured) (gitops.MemberList, bool)) cache.IndexFunc {
 	return func(obj any) ([]string, error) {
@@ -76,15 +76,15 @@ func memberKeys(members func(*unstructured.Unstructured) (gitops.MemberList, boo
 		keys := make([]string, 0, len(list.Entries))
 		for _, e := range list.Entries {
 			if b, builtin := resourceid.BuiltinForKind(e.Kind); builtin && b.Group == e.Group {
-				keys = append(keys, MemberKey(MemberMeant, e.Group, e.Kind, gitops.MemberNamespace(b.Namespaced, e.Namespace, list.Destination), e.Name))
+				keys = append(keys, MemberKey(MemberMeant, e.Group, e.Kind, gitops.MemberNamespace(b.Namespaced, e.Namespace, list.DestinationNamespace), e.Name))
 				continue
 			}
 			keys = append(keys, MemberKey(MemberAsRecorded, e.Group, e.Kind, e.Namespace, e.Name))
 			switch {
 			case e.Namespace != "":
 				keys = append(keys, MemberKey(MemberClusterScoped, e.Group, e.Kind, "", e.Name))
-			case list.Destination != "":
-				keys = append(keys, MemberKey(MemberInDestination, e.Group, e.Kind, list.Destination, e.Name))
+			case list.DestinationNamespace != "":
+				keys = append(keys, MemberKey(MemberInDestination, e.Group, e.Kind, list.DestinationNamespace, e.Name))
 			}
 		}
 		return keys, nil

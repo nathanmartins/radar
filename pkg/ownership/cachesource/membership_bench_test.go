@@ -11,9 +11,9 @@ import (
 	"github.com/skyhook-io/radar/pkg/resourceid"
 )
 
-// BenchmarkRecorders is one search for an object's recorders among 300
+// BenchmarkRecordingManagers is one search for an object's recorders among 300
 // Applications of 40 entries each, a few of them unreadable.
-func BenchmarkRecorders(b *testing.B) {
+func BenchmarkRecordingManagers(b *testing.B) {
 	w := ownershiptest.World{Resources: ownershiptest.Resources(), Collection: map[resourceid.GroupKind]ownershiptest.Collection{}}
 	for _, k := range ownershiptest.Kinds {
 		w.Collection[k.GroupKind] = ownershiptest.Collection{OnDemand: !k.Typed}
@@ -34,12 +34,12 @@ func BenchmarkRecorders(b *testing.B) {
 	}
 	s := begin(b, render(b, w).source())
 	target := resourceid.Ref{Group: "apps", Kind: "Deployment", Namespace: "team-7", Name: "app-7-service-3"}
-	if got := s.Recorders(target); len(got.Recorders) != 1 || len(got.Unreadable) != 3 || len(got.Gaps) != 0 {
-		b.Fatalf("Recorders = %+v", got)
+	if got := s.RecordingManagers(target); len(got.Managers) != 1 || len(got.Unreadable) != 3 || len(got.Gaps) != 0 {
+		b.Fatalf("RecordingManagers = %+v", got)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		s.Recorders(target)
+		s.RecordingManagers(target)
 	}
 }

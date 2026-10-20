@@ -15,9 +15,9 @@ var (
 	FluxHelmRelease   = resourceid.GroupKind{Group: "helm.toolkit.fluxcd.io", Kind: "HelmRelease"}
 )
 
-// RecordingManagers returns the manager kinds whose status lists their
+// RecordingManagerKinds returns the manager kinds whose status lists their
 // members.
-func RecordingManagers() []resourceid.GroupKind {
+func RecordingManagerKinds() []resourceid.GroupKind {
 	return []resourceid.GroupKind{ArgoApplication, FluxHelmRelease, FluxKustomization}
 }
 
@@ -53,8 +53,8 @@ func (m MembershipState) String() string {
 	}
 }
 
-// InventoryRead is one manager's member list.
-type InventoryRead struct {
+// MembersRead is one manager's member list.
+type MembersRead struct {
 	// Manager is the read of the manager itself; the rest is set only when
 	// it is Present.
 	Manager    ObjectRead
@@ -68,32 +68,32 @@ type InventoryRead struct {
 	Members []resourceid.Ref
 }
 
-// RecorderRead is what a search for the managers recording one object found.
-type RecorderRead struct {
-	// Recorders are the local managers whose member lists name the object,
+// RecordingManagersRead is what a search for the managers recording one object found.
+type RecordingManagersRead struct {
+	// Managers are the local managers whose member lists name the object,
 	// sorted.
-	Recorders []Observation
-	// Elsewhere are the remote managers whose member lists name an object at
+	Managers []Observation
+	// Remote are the remote managers whose member lists name an object at
 	// the same coordinates, sorted: any of them records this one if its
 	// destination is this cluster after all.
-	Elsewhere []resourceid.Ref
+	Remote []resourceid.Ref
 	// Unreadable are the managers whose member list can't be read, any of
 	// which may name the object, sorted.
 	Unreadable []resourceid.Ref
-	// Unnamed reports that the object can't be named: a reference that
+	// TargetUnresolvable reports that the object can't be named: a reference that
 	// contradicts its kind's scope, or a kind whose scope Radar can't tell.
 	// No manager's list was searched, and Gaps hold only the object's gap.
-	Unnamed bool
+	TargetUnresolvable bool
 	// Gaps are the manager kinds and namespaces the search couldn't read, or
 	// why the object can't be named.
 	Gaps []Gap
 }
 
-// Complete reports whether Recorders are every manager of the
+// Complete reports whether Managers are every manager of the
 // RecordingManagers kinds recording the object among those whose status this
 // cluster stores. A manager of another kind, or one running elsewhere, such
 // as a hub's Argo CD or a management cluster's Flux, is invisible here: an
 // object with no recorders may still be managed by GitOps.
-func (r RecorderRead) Complete() bool {
-	return len(r.Gaps) == 0 && len(r.Elsewhere) == 0 && len(r.Unreadable) == 0
+func (r RecordingManagersRead) Complete() bool {
+	return len(r.Gaps) == 0 && len(r.Remote) == 0 && len(r.Unreadable) == 0
 }
