@@ -25,7 +25,7 @@ import (
 	"github.com/skyhook-io/radar/pkg/topology"
 )
 
-// scriptedSource opens sessions over the ownership fixture whose ValidateStores
+// scriptedSource opens sessions over the ownership fixture whose ValidateCaches
 // returns the next scripted error.
 type scriptedSource struct {
 	t        *testing.T
@@ -41,7 +41,7 @@ type scriptedSession struct {
 	calls    *[]string
 }
 
-func (s scriptedSession) ValidateStores() error {
+func (s scriptedSession) ValidateCaches() error {
 	*s.calls = append(*s.calls, "validate")
 	return s.validate
 }
@@ -78,11 +78,8 @@ func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing
 		unavailable readreason.Code
 	}{
 		{"valid at once", &scriptedSource{}, 1, ""},
-		{"a store replaced once", &scriptedSource{validate: []error{ownership.ErrStoreReplaced}}, 2, ""},
-		{"a store replaced twice", &scriptedSource{validate: []error{ownership.ErrStoreReplaced, ownership.ErrStoreReplaced}}, 2, readreason.KindSyncPending},
 		{"objects changed once", &scriptedSource{validate: []error{ownership.ErrObjectsChanged}}, 2, ""},
 		{"objects changed twice", &scriptedSource{validate: []error{ownership.ErrObjectsChanged, ownership.ErrObjectsChanged}}, 2, readreason.ReadError},
-		{"a store replaced, then objects changed", &scriptedSource{validate: []error{ownership.ErrStoreReplaced, ownership.ErrObjectsChanged}}, 2, readreason.ReadError},
 		{"caches replaced", &scriptedSource{validate: []error{ownership.ErrCachesReplaced}}, 1, readreason.ConnectionChanged},
 		{"no caches", &scriptedSource{begin: errors.New("not connected")}, 0, readreason.ClusterConnecting},
 	} {

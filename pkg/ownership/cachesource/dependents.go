@@ -193,8 +193,7 @@ func (s *session) dynamicIndexed(q *search, kind ownership.CatalogKind, index st
 	readVersion := func(gvr schema.GroupVersionResource, namespace string) ([]*unstructured.Unstructured, bool) {
 		cw, seen := clusterWide[gvr]
 		if !seen {
-			if objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, "", index, keys...); ok {
-				s.record(gvr, "", server)
+			if objs, ok := s.caches.Dynamic.ReadableIndexed(gvr, "", index, keys...); ok {
 				cw = &clusterWideRead{all: objs}
 			}
 			clusterWide[gvr] = cw
@@ -214,11 +213,7 @@ func (s *session) dynamicIndexed(q *search, kind ownership.CatalogKind, index st
 		if namespace == "" {
 			return nil, false
 		}
-		objs, server, ok := s.caches.Dynamic.ReadableIndexed(gvr, namespace, index, keys...)
-		if ok {
-			s.record(gvr, namespace, server)
-		}
-		return objs, ok
+		return s.caches.Dynamic.ReadableIndexed(gvr, namespace, index, keys...)
 	}
 	// read searches the informers serving namespace at every watched version
 	// that can answer, and says which versions answered.

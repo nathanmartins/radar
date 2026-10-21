@@ -149,7 +149,7 @@ func (d *driver) staleKind() string {
 				scopes = c.Namespaces
 			}
 			for _, ns := range scopes {
-				if _, synced := d.r.caches.Dynamic.ReadServer(gvr, ns); !synced {
+				if _, _, synced := d.r.caches.Dynamic.ReadableObject(gvr, ns, "probe"); !synced {
 					return k.GroupKind.String() + " (not loaded in " + ns + ")"
 				}
 			}
@@ -295,8 +295,8 @@ func TestSourceConformsThroughChanges(t *testing.T) {
 				if diffs := ownershiptest.Conform(t, want, got, ownershiptest.QueriesFor(d.w)); diffs > 0 {
 					t.Fatalf("after step %d (%s): %d differences", n, change, diffs)
 				}
-				if err := got.ValidateStores(); err != nil {
-					t.Fatalf("after step %d (%s): ValidateStores: %v", n, change, err)
+				if err := got.ValidateCaches(); err != nil {
+					t.Fatalf("after step %d (%s): ValidateCaches: %v", n, change, err)
 				}
 				changed++
 			}
@@ -318,7 +318,7 @@ func TestFenceWaitsForAnEmptyStoreToLoad(t *testing.T) {
 	}
 	w.Collection[widgetKind] = ownershiptest.Collection{OnDemand: true}
 	d := &driver{t: t, r: &rendered{caches: f.caches}, w: w}
-	if _, ok := f.caches.Dynamic.ReadServer(widgets, ""); ok {
+	if _, _, ok := f.caches.Dynamic.ReadableObject(widgets, "", "probe"); ok {
 		t.Fatal("scenario: no store may serve Widgets yet")
 	}
 	if stale := d.staleKind(); stale == "" {

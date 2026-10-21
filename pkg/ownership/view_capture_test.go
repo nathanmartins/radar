@@ -60,18 +60,18 @@ func (c *countingSession) Members(ref resourceid.Ref) ownership.MembersRead {
 func (c *countingSession) RecordingManagers(ref resourceid.Ref) ownership.RecordingManagersRead {
 	return c.now.RecordingManagers(ref)
 }
-func (c *countingSession) ValidateStores() error {
+func (c *countingSession) ValidateCaches() error {
 	if c.validate != nil {
 		return c.validate
 	}
-	return c.now.ValidateStores()
+	return c.now.ValidateCaches()
 }
 
 func TestViewValidateIsTheSessions(t *testing.T) {
 	s := newCountingSession(t, ownershiptest.Fixture())
-	s.validate = ownership.ErrStoreReplaced
-	if err := ownership.NewView(s, ownership.Unrestricted()).ValidateAnswers(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateAnswers = %v, want the session's ErrStoreReplaced", err)
+	s.validate = ownership.ErrCachesReplaced
+	if err := ownership.NewView(s, ownership.Unrestricted()).ValidateAnswers(); !errors.Is(err, ownership.ErrCachesReplaced) {
+		t.Fatalf("ValidateAnswers = %v, want the session's ErrCachesReplaced", err)
 	}
 }
 
@@ -596,7 +596,7 @@ type phased struct {
 
 func (p *phased) cur() ownership.ReadSession  { return p.phases[min(p.i, len(p.phases)-1)] }
 func (p *phased) Catalog() *ownership.Catalog { return p.cur().Catalog() }
-func (p *phased) ValidateStores() error       { return nil }
+func (p *phased) ValidateCaches() error       { return nil }
 func (p *phased) Members(r resourceid.Ref) ownership.MembersRead {
 	return p.cur().Members(r)
 }

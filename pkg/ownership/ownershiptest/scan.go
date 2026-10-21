@@ -46,7 +46,7 @@ type scanSession struct {
 
 func (s scanSession) Catalog() *ownership.Catalog { return s.catalog }
 
-func (s scanSession) ValidateStores() error { return nil }
+func (s scanSession) ValidateCaches() error { return nil }
 
 // scope says whether discovery serves gk and whether it is namespaced.
 func (s scanSession) scope(gk resourceid.GroupKind) (namespaced, served bool) {

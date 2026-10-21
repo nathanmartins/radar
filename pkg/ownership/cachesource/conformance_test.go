@@ -28,8 +28,8 @@ func conform(t *testing.T, w ownershiptest.World) {
 	before := r.storedObjects()
 	got := begin(t, r.source())
 	ownershiptest.Conform(t, want, got, ownershiptest.QueriesFor(w))
-	if err := got.ValidateStores(); err != nil {
-		t.Fatalf("a quiet cache's session failed ValidateStores: %v", err)
+	if err := got.ValidateCaches(); err != nil {
+		t.Fatalf("a quiet cache's session failed ValidateCaches: %v", err)
 	}
 	resolveAlike(t, w, want, got)
 	viewsAlike(t, w, want, got)

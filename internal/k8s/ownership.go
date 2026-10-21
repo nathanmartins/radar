@@ -19,7 +19,7 @@ import (
 
 // ownershipSource reads ownership from the caches current when a session
 // begins. A session pins them, so a context switch that replaces them fails
-// its ValidateStores instead of mixing two clusters' answers.
+// its ValidateCaches instead of mixing two clusters' answers.
 var ownershipSource = cachesource.New(func() cachesource.Caches {
 	var c cachesource.Caches
 	if rc := GetResourceCache(); rc != nil {
@@ -39,10 +39,9 @@ var ownershipSource = cachesource.New(func() cachesource.Caches {
 // session's catalog is known. owner is the fetched object itself: when it is a
 // Deployment or an Argo Rollout, the ReplicaSets that only keep its rollback
 // history move to OlderRevisions, read from the answer's own caches so that
-// a context switch refuses them with it. A store replaced during the read (a
-// cluster-wide watch taking over from namespace ones), or an object that
-// changed between the view's reads, is worth one more try; caches replaced or
-// not ready leave the answer unavailable, as does a retry that fails too.
+// a context switch refuses them with it. An object that changed between the
+// view's reads is worth one more try; caches replaced or not ready leave the
+// answer unavailable, as does a retry that fails too.
 func AnswerOwnership(rel *topology.Relationships, fetched ownership.Observation, owner metav1.Object, access func(*ownership.Catalog) ownership.Access) {
 	answerOwnership(ownershipSource, topology.ApplyOwnership, splitHistory(fetched.Ref, owner), rel, fetched, access)
 }
@@ -121,12 +120,9 @@ func answerOwnership(source ownership.Source, apply func(*topology.Relationships
 		case errors.Is(err, ownership.ErrCachesReplaced):
 			topology.OwnershipUnavailable(rel, string(readreason.ConnectionChanged))
 			return
-		case errors.Is(err, ownership.ErrObjectsChanged):
-			// Objects changed while they were read; nothing is loading, and
-			// reading again resolves it.
-			reason = readreason.ReadError
 		default:
-			reason = readreason.KindSyncPending
+			// Objects changed while they were read; reading again resolves it.
+			reason = readreason.ReadError
 		}
 	}
 	topology.OwnershipUnavailable(rel, string(reason))
