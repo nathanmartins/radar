@@ -804,12 +804,13 @@ export function useResourceAudit(
   name: string,
   group?: string,
 ) {
+  const emptyNamespaceSegment = useEmptyNamespaceSegment();
   const params = new URLSearchParams();
   if (group) params.set("group", group);
   const query = params.toString();
   return useQuery<AuditFinding[]>({
-    queryKey: ["audit", "resource", kind, group ?? "", namespace, name],
-    queryFn: () => fetchJSON(`/audit/resource/${kind}/${namespace}/${name}${query ? `?${query}` : ""}`),
+    queryKey: ["audit", "resource", kind, group ?? "", namespace, name, emptyNamespaceSegment],
+    queryFn: () => fetchJSON(`/audit/resource/${resourcePathSegments(kind, namespace, name, emptyNamespaceSegment)}${query ? `?${query}` : ""}`),
     staleTime: 30000,
   });
 }
@@ -2741,21 +2742,38 @@ export function useArgoRevisionMetadata(
   });
 }
 
+// A cluster-scoped resource sends "_" as its namespace segment: proxies in
+// front of Radar (Radar Cloud's among them) merge "//", which drops the
+// segment and leaves a path no route matches.
+function resourcePathSegments(
+  kind: string,
+  namespace: string,
+  name: string,
+  emptyNamespaceSegment = "_",
+): string {
+  return `${kind}/${namespace || emptyNamespaceSegment}/${name}`;
+}
+
+// A Radar without the clusterScopedPlaceholder flag reads "_" on the write and
+// audit routes as a real namespace, so it keeps getting the empty segment.
+function useEmptyNamespaceSegment(): string {
+  const { data: capabilities } = useCapabilities();
+  return capabilities && !capabilities.features?.clusterScopedPlaceholder ? "" : "_";
+}
+
 // Generic resource fetching - returns resource with relationships
-// Uses '_' as placeholder for cluster-scoped resources (empty namespace)
 export function fetchResourceWithRelationships<T>(
   kind: string,
   namespace: string,
   name: string,
   group?: string,
 ): Promise<ResourceWithRelationships<T>> {
-  const ns = namespace || "_";
   const params = new URLSearchParams();
   if (group) params.set("group", group);
   const queryString = params.toString();
 
   return fetchJSON(
-    `/resources/${kind}/${ns}/${name}${queryString ? `?${queryString}` : ""}`,
+    `/resources/${resourcePathSegments(kind, namespace, name)}${queryString ? `?${queryString}` : ""}`,
   );
 }
 
@@ -4311,6 +4329,7 @@ export function useAvailablePorts(
 // Update a resource with new YAML
 export function useUpdateResource() {
   const queryClient = useQueryClient();
+  const emptyNamespaceSegment = useEmptyNamespaceSegment();
 
   return useMutation({
     mutationFn: async ({
@@ -4331,7 +4350,7 @@ export function useUpdateResource() {
       reviewedContext?: string
     }) => {
       const url = new URL(
-        `${getApiBase()}/resources/${kind}/${namespace}/${name}`,
+        `${getApiBase()}/resources/${resourcePathSegments(kind, namespace, name, emptyNamespaceSegment)}`,
         window.location.origin,
       );
       if (!force) {
@@ -4428,7 +4447,7 @@ export function useCascadeDeletePreview(
     queryKey: ["cascade-preview", kind, group, namespace, name],
     queryFn: () =>
       fetchJSON<CascadeDeletePreview>(
-        `/resources/${kind}/${namespace}/${name}/cascade-preview${group ? `?group=${encodeURIComponent(group)}` : ""}`,
+        `/resources/${resourcePathSegments(kind, namespace, name)}/cascade-preview${group ? `?group=${encodeURIComponent(group)}` : ""}`,
       ),
     enabled,
     staleTime: 30_000,
@@ -4438,6 +4457,7 @@ export function useCascadeDeletePreview(
 // Delete a resource
 export function useDeleteResource() {
   const queryClient = useQueryClient();
+  const emptyNamespaceSegment = useEmptyNamespaceSegment();
 
   return useMutation({
     mutationFn: async ({
@@ -4454,7 +4474,7 @@ export function useDeleteResource() {
       force?: boolean;
     }) => {
       const url = new URL(
-        `${getApiBase()}/resources/${kind}/${namespace}/${name}`,
+        `${getApiBase()}/resources/${resourcePathSegments(kind, namespace, name, emptyNamespaceSegment)}`,
         window.location.origin,
       );
       if (group) {
@@ -4488,6 +4508,7 @@ export function useDeleteResource() {
 
 export function useBulkDeleteResources() {
   const queryClient = useQueryClient();
+  const emptyNamespaceSegment = useEmptyNamespaceSegment();
 
   return useMutation({
     mutationFn: async ({
@@ -4505,7 +4526,7 @@ export function useBulkDeleteResources() {
       const results = await Promise.allSettled(
         items.map(async ({ kind, group, namespace, name }) => {
           const url = new URL(
-            `${getApiBase()}/resources/${kind}/${namespace}/${name}`,
+            `${getApiBase()}/resources/${resourcePathSegments(kind, namespace, name, emptyNamespaceSegment)}`,
             window.location.origin,
           );
           if (group) url.searchParams.set("group", group);
