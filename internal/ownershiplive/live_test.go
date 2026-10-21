@@ -303,8 +303,8 @@ func TestLiveParity(t *testing.T) {
 					fmt.Sprintf("%s: listed %v %v %+v, cache %v %v %+v", question, a.State, a.Ref, a.Gap, b.State, b.Ref, b.Gap))
 			}
 		}
-		if err := got.ValidateStores(); err != nil {
-			t.Errorf("pass %d: ValidateStores: %v", pass, err)
+		if err := got.ValidateCaches(); err != nil {
+			t.Errorf("pass %d: ValidateCaches: %v", pass, err)
 		}
 		states, members := map[ownership.MembershipState]int{}, 0
 		for _, o := range w.Objects {

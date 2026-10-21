@@ -128,12 +128,12 @@ type indexQuery []string
 // cluster-wide informer, which holds every namespace of a namespaced
 // resource. ok is also false when the serving informers lack the index. The
 // objects are the cached ones: callers must not modify or keep them.
-func (d *DynamicResourceCache) ReadableIndexed(gvr schema.GroupVersionResource, namespace, index string, keys ...string) (objs []*unstructured.Unstructured, server DynamicReadServer, ok bool) {
-	server, ok = d.ReadServer(gvr, namespace)
+func (d *DynamicResourceCache) ReadableIndexed(gvr schema.GroupVersionResource, namespace, index string, keys ...string) (objs []*unstructured.Unstructured, ok bool) {
+	entries, ok := d.servedEntries(gvr, namespace)
 	if !ok {
-		return nil, server, false
+		return nil, false
 	}
-	for _, e := range server.entries {
+	for _, e := range entries {
 		var items []any
 		var err error
 		if len(keys) == 1 {
@@ -142,7 +142,7 @@ func (d *DynamicResourceCache) ReadableIndexed(gvr schema.GroupVersionResource, 
 			items, err = e.informer.GetIndexer().Index(index, indexQuery(keys))
 		}
 		if err != nil {
-			return nil, server, false
+			return nil, false
 		}
 		for _, item := range items {
 			if u, isUnstructured := item.(*unstructured.Unstructured); isUnstructured && (namespace == "" || u.GetNamespace() == namespace) {
@@ -150,5 +150,5 @@ func (d *DynamicResourceCache) ReadableIndexed(gvr schema.GroupVersionResource, 
 			}
 		}
 	}
-	return objs, server, true
+	return objs, true
 }

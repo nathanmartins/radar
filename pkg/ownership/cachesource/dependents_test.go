@@ -148,7 +148,7 @@ func TestDependentCandidatesCompareVersionsWatchedInDifferentScopes(t *testing.T
 			if !slices.Equal(found, tc.wantFound) || !slices.Equal(widgetGaps, tc.wantGaps) {
 				t.Fatalf("Widgets %v, gaps %+v; want %v, %+v", found, widgetGaps, tc.wantFound, tc.wantGaps)
 			}
-			if err := s.ValidateStores(); err != nil {
+			if err := s.ValidateCaches(); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -206,8 +206,8 @@ func TestDependentCandidatesIgnoreAnAmbiguousKindNothingCollects(t *testing.T) {
 }
 
 // A search while a cluster-wide watch takes over from namespace ones must
-// not answer from the unloaded replacement, and a session that read the old
-// store must fail ValidateStores.
+// not answer from the unloaded replacement. A session that read the old store
+// still validates: only replaced caches fail it.
 func TestDependentCandidatesThroughAPromotion(t *testing.T) {
 	f, p := newPromotionFixture(t)
 	source := f.source()
@@ -216,8 +216,8 @@ func TestDependentCandidatesThroughAPromotion(t *testing.T) {
 		t.Fatalf("from alpha's watch = %+v", got)
 	}
 	p.run(t, f, true)
-	if err := before.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores after the replacement = %v, want ErrStoreReplaced", err)
+	if err := before.ValidateCaches(); err != nil {
+		t.Fatalf("ValidateCaches after a watch replacement = %v; only replaced caches fail it", err)
 	}
 	during := begin(t, source)
 	for _, domain := range []ownership.SearchScope{ownership.InNamespace("alpha"), ownership.Everywhere()} {
@@ -287,7 +287,7 @@ func TestDependentCandidatesDoNoIO(t *testing.T) {
 			s.DependentCandidates(uid, domain, 0)
 		}
 	}
-	if err := s.ValidateStores(); err != nil {
+	if err := s.ValidateCaches(); err != nil {
 		t.Fatal(err)
 	}
 	if after := len(f.typed.Actions()) + len(f.dynamic.Actions()); after != before {
@@ -342,20 +342,6 @@ func TestDependentCandidatesCostDoesNotGrowWithUnrelatedObjects(t *testing.T) {
 	small, large := bytesPerSearch(10), bytesPerSearch(5000)
 	if large > small+16<<10 {
 		t.Fatalf("%d bytes per search with 5,000 unrelated Pods, %d with 10; the search must not scan the kind", large, small)
-	}
-}
-
-// An empty answer depends on the stores that gave it as much as a full one.
-func TestDependentCandidatesNegativeFailsValidateOnceItsStoreIsReplaced(t *testing.T) {
-	f, p := newPromotionFixture(t)
-	s := begin(t, f.source())
-	got := s.DependentCandidates("uid-nothing-names", ownership.InNamespace("alpha"), 0)
-	if slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widgetKind }) || len(got.Candidates) != 0 {
-		t.Fatalf("a search alpha's loaded watch answers = %+v", got)
-	}
-	p.run(t, f, true)
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores after the store behind an empty answer was replaced = %v, want ErrStoreReplaced", err)
 	}
 }
 
@@ -472,9 +458,9 @@ func TestDependentCandidatesReportAClusterWideStoreLoadingOnce(t *testing.T) {
 
 // A cluster-wide store serves every namespace, so a search of many namespaces
 // reads it once: the work follows the owner's dependents plus the namespaces
-// asked about, not their product, and the session records the one store.
+// asked about, not their product.
 func TestDependentCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
-	search := func(n int) (stores int, bytes uint64) {
+	search := func(n int) uint64 {
 		var namespaces []string
 		f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
 			for i := range n {
@@ -499,13 +485,10 @@ func TestDependentCandidatesReadAClusterWideStoreOncePerSearch(t *testing.T) {
 			s.DependentCandidates("uid-node", domain, 0)
 		}
 		goruntime.ReadMemStats(&after)
-		return len(s.(*session).served), (after.TotalAlloc - before.TotalAlloc) / 3
+		return (after.TotalAlloc - before.TotalAlloc) / 3
 	}
-	smallStores, small := search(100)
-	largeStores, large := search(800)
-	if largeStores != smallStores {
-		t.Fatalf("the session recorded %d stores for 800 namespaces and %d for 100; one cluster-wide store served them all", largeStores, smallStores)
-	}
+	small := search(100)
+	large := search(800)
 	// Eight times the namespaces and dependents allocates eight times as much
 	// when each store is read once; read per namespace, it grows with their
 	// product.

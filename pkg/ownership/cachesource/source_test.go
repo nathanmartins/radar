@@ -2,7 +2,6 @@ package cachesource
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"slices"
 	"sync/atomic"
@@ -262,7 +261,7 @@ func TestObjectCopiesWhatOwnershipReads(t *testing.T) {
 			t.Fatalf("Event in %q = %v, want excluded", group, event.State)
 		}
 	}
-	if err := s.ValidateStores(); err != nil {
+	if err := s.ValidateCaches(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -488,20 +487,24 @@ func (p *promotion) run(t *testing.T, f *fixture, hold bool) {
 	}
 }
 
-func TestValidateFailsOnceAReadStoreIsReplaced(t *testing.T) {
+// A watch replaced by another within the same caches, as when a cluster-wide
+// watch takes over from namespace ones, fails nothing: reads go to whatever
+// informers serve now, and an unloaded replacement proves nothing until it
+// loads.
+func TestReadsFollowAWatchReplacement(t *testing.T) {
 	f, p := newPromotionFixture(t)
 	source := f.source()
 	before := begin(t, source)
 	if got := before.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
 		t.Fatalf("Widget from alpha's watch = %v %+v", got.State, got.Gap)
 	}
-	if err := before.ValidateStores(); err != nil {
+	if err := before.ValidateCaches(); err != nil {
 		t.Fatal(err)
 	}
 
 	p.run(t, f, true)
-	if err := before.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores after the replacement = %v, want ErrStoreReplaced", err)
+	if err := before.ValidateCaches(); err != nil {
+		t.Fatalf("ValidateCaches after a watch replacement = %v; only replaced caches fail it", err)
 	}
 	during := begin(t, source)
 	if got := during.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Unavailable || got.Gap.Reason != readreason.KindSyncPending {
@@ -515,39 +518,8 @@ func TestValidateFailsOnceAReadStoreIsReplaced(t *testing.T) {
 	if got := during.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
 		t.Fatalf("Widget from the loaded replacement = %v %+v", got.State, got.Gap)
 	}
-	if err := during.ValidateStores(); err != nil {
+	if err := during.ValidateCaches(); err != nil {
 		t.Fatalf("a session that read only the replacement: %v", err)
-	}
-}
-
-// An absence depends on its store as much as a presence does.
-func TestValidateFailsOnceTheStoreBehindAnAbsenceIsReplaced(t *testing.T) {
-	f, p := newPromotionFixture(t)
-	s := begin(t, f.source())
-	if got := s.Object(ref("example.io", "Widget", "alpha", "missing")); got.State != ownership.Absent {
-		t.Fatalf("a miss in alpha's loaded watch = %v %+v", got.State, got.Gap)
-	}
-	p.run(t, f, true)
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores after the store behind an absence was replaced = %v, want ErrStoreReplaced", err)
-	}
-}
-
-func TestValidateFailsWhenReadsSpanAStoreAndItsReplacement(t *testing.T) {
-	f, p := newPromotionFixture(t)
-	s := begin(t, f.source())
-	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
-		t.Fatalf("Widget from alpha's watch = %v", got.State)
-	}
-	p.run(t, f, false)
-	if !f.caches.Dynamic.WaitForSync(widgets, 5*time.Second) {
-		t.Fatal("the replacement did not sync")
-	}
-	if got := s.Object(ref("example.io", "Widget", "alpha", "missing")); got.State != ownership.Absent {
-		t.Fatalf("a miss in the loaded replacement = %v", got.State)
-	}
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores = %v; a session that read both stores must fail", err)
 	}
 }
 
@@ -559,13 +531,13 @@ func TestValidateFailsOnceTheCachesAreRetired(t *testing.T) {
 
 	s := begin(t, source)
 	current = second.caches
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after a switch: %v, want ErrCachesReplaced", err)
 	}
 
 	s = begin(t, source)
 	second.caches.Dynamic.Stop()
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache stopped: %v, want ErrCachesReplaced", err)
 	}
 	if _, err := source.Begin(); !errors.Is(err, ownership.ErrNotConnected) {
@@ -575,7 +547,7 @@ func TestValidateFailsOnceTheCachesAreRetired(t *testing.T) {
 	current = first.caches
 	s = begin(t, source)
 	first.caches.Typed.Stop()
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the typed cache stopped: %v, want ErrCachesReplaced", err)
 	}
 
@@ -597,26 +569,26 @@ func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
 		t.Fatalf("Widget before the dynamic cache and discovery = %v", got.State)
 	}
 	current = f.caches
-	if err := s.ValidateStores(); err != nil {
-		t.Fatalf("ValidateStores once the dynamic cache and discovery arrive = %v, want nil", err)
+	if err := s.ValidateCaches(); err != nil {
+		t.Fatalf("ValidateCaches once the dynamic cache and discovery arrive = %v, want nil", err)
 	}
 
 	other := newFixture(t, k8score.CacheConfig{}, nil)
 	s = begin(t, source)
 	current.Dynamic = other.caches.Dynamic
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache was replaced: %v, want ErrCachesReplaced", err)
 	}
 	current = f.caches
 	s = begin(t, source)
 	current.Discovery = other.caches.Discovery
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after discovery was replaced: %v, want ErrCachesReplaced", err)
 	}
 	current = f.caches
 	s = begin(t, source)
 	current.Dynamic = nil
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the dynamic cache went away: %v, want ErrCachesReplaced", err)
 	}
 	// A typed cache replaced by one still running is a switch even before
@@ -624,7 +596,7 @@ func TestValidateAcceptsCachesThatArriveAfterBegin(t *testing.T) {
 	current = f.caches
 	s = begin(t, source)
 	current.Typed = other.caches.Typed
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrCachesReplaced) {
+	if err := s.ValidateCaches(); !errors.Is(err, ownership.ErrCachesReplaced) {
 		t.Fatalf("after the typed cache was replaced: %v, want ErrCachesReplaced", err)
 	}
 }
@@ -650,7 +622,7 @@ func TestSessionDoesNoIO(t *testing.T) {
 	} {
 		s.Object(r)
 	}
-	if err := s.ValidateStores(); err != nil {
+	if err := s.ValidateCaches(); err != nil {
 		t.Fatal(err)
 	}
 	if after := len(f.typed.Actions()) + len(f.dynamic.Actions()); after != before {
@@ -917,151 +889,6 @@ func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 	}
 }
 
-// A version the session didn't read, because nothing watched it when the
-// session chose its versions, may be watched before the session validates and
-// hold what the version it read lacks. The session's answer can't stand: the
-// caller reads again, and a fresh session reads both versions.
-func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatched(t *testing.T) {
-	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	for _, first := range []string{"Widget", "Gadget"} {
-		for _, inV1 := range []bool{false, true} {
-			t.Run(fmt.Sprintf("first read a %s, target only in v1 %v", first, inV1), func(t *testing.T) {
-				objects := []runtime.Object{widget("alpha", "anchor", "uid-anchor")}
-				if target := widget("alpha", "target", "uid-target"); inV1 {
-					objects = append(objects, target)
-				} else {
-					objects = append(objects, betaWidget(target))
-				}
-				f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
-					f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-						map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"}, objects...)
-				})
-				f.watch(t, widgets)
-				if first == "Gadget" {
-					f.watch(t, gadgets)
-				}
-				source := f.source()
-				s := begin(t, source)
-				s.Object(ref("example.io", first, "alpha", "anchor"))
-				f.watch(t, beta)
-				s.Object(ref("example.io", "Widget", "alpha", "target"))
-				if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-					t.Fatalf("ValidateStores = %v; the session read v1 alone after v1beta1 came to be watched", err)
-				}
-				if fresh := begin(t, source).Object(ref("example.io", "Widget", "alpha", "target")); fresh.State != ownership.Unavailable {
-					t.Fatalf("a fresh session read %v; the two versions disagree", fresh.State)
-				}
-			})
-		}
-	}
-}
-
-// A search reads each kind at the versions watched when the session chose
-// them, as a read does; a version watched later refuses the session, whether
-// the search covered one namespace or all of them.
-func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatched(t *testing.T) {
-	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
-		t.Run(name, func(t *testing.T) {
-			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
-				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-					map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
-					betaWidget(widget("alpha", "w1", "uid-w1")))
-			})
-			f.watch(t, widgets)
-			s := begin(t, f.source())
-			s.DependentCandidates("uid-deploy", domain, 0)
-			f.watch(t, beta)
-			if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-				t.Fatalf("ValidateStores = %v; the search read v1 alone after v1beta1 came to be watched", err)
-			}
-		})
-	}
-}
-
-// A search answered from a cluster-wide store covers every namespace, so a
-// version it didn't read, watched later in just one namespace, refuses the
-// session too.
-func TestValidateRefusesASearchOnceAVersionItDidNotReadIsWatchedInOneNamespace(t *testing.T) {
-	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
-		t.Run(name, func(t *testing.T) {
-			f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
-				f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-					map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
-					betaWidget(widget("alpha", "w1", "uid-w1")))
-				// v1beta1 can be watched only namespace by namespace.
-				f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
-					if a.GetResource() == beta && a.GetNamespace() == "" {
-						return true, nil, apierrors.NewForbidden(beta.GroupResource(), "", errors.New("namespaces only"))
-					}
-					return false, nil, nil
-				})
-			})
-			f.watch(t, widgets)
-			s := begin(t, f.source())
-			s.DependentCandidates("uid-deploy", domain, 0)
-			if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
-				t.Fatal(err)
-			}
-			if !f.caches.Dynamic.WaitForSync(beta, 5*time.Second) {
-				t.Fatal("v1beta1's alpha watch never synced")
-			}
-			if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-				t.Fatalf("ValidateStores = %v; v1beta1 came to be watched in alpha after the search read v1 alone", err)
-			}
-		})
-	}
-}
-
-// A search over two watched versions needs them to hold each object at the
-// same update, as a read does: one watch holding an adoption the other lacks
-// leaves the namespace loading.
-func TestDependentCandidatesNeedVersionsToAgreeOnTheUpdate(t *testing.T) {
-	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
-		t.Run(name, func(t *testing.T) {
-			f := versionsFixture(t, []runtime.Object{atVersion(widget("alpha", "w1", "uid-w1"), "41")}, []runtime.Object{betaWidget(atVersion(widget("alpha", "w1", "uid-w1"), "42"))}, nil)
-			got := begin(t, f.source()).DependentCandidates("uid-deploy", domain, 0)
-			widget := resourceid.GroupKind{Group: "example.io", Kind: "Widget"}
-			listed := slices.ContainsFunc(got.Candidates, func(c ownership.Observation) bool { return c.Ref.GroupKind() == widget })
-			loading := slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widget && g.Reason == readreason.KindSyncPending })
-			if listed || !loading || got.Complete() {
-				t.Fatalf("got %+v; the two versions hold w1 at two updates", got)
-			}
-		})
-	}
-}
-
-// A version left unread because nothing watched it may come to be watched in
-// the read's namespace alone, as when its cluster-wide list is refused; it
-// refuses the session as a cluster-wide watch would.
-func TestValidateRefusesASessionOnceAVersionItDidNotReadIsWatchedInItsNamespace(t *testing.T) {
-	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
-		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
-			widget("alpha", "w1", "uid-widget"), betaWidget(widget("alpha", "w1", "uid-widget")))
-		f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
-			if a.GetResource().Version == "v1beta1" && a.GetNamespace() == "" {
-				return true, nil, apierrors.NewForbidden(beta.GroupResource(), "", errors.New("cluster-wide list denied"))
-			}
-			return false, nil, nil
-		})
-	})
-	f.watch(t, widgets)
-	s := begin(t, f.source())
-	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
-		t.Fatalf("Widget = %v %+v", got.State, got.Gap)
-	}
-	if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "alpha's v1beta1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(beta, "alpha") })
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores = %v; want ErrStoreReplaced once v1beta1 serves alpha", err)
-	}
-}
-
 // When no watched version answers, a version watched where the read is says
 // why: v1 watched only in alpha says nothing about beta, while v1beta1's
 // cluster-wide watch is loading, so a retry gets its answer, or has stalled.
@@ -1139,43 +966,6 @@ func TestObjectIgnoresAWatchOfAnUnservedVersion(t *testing.T) {
 	}
 }
 
-// ValidateStores must notice a replaced store even when another version's store
-// that answered the same read survives.
-func TestValidateFailsWhenOneVersionsStoreIsReplaced(t *testing.T) {
-	beta := schema.GroupVersionResource{Group: "example.io", Version: "v1beta1", Resource: "widgets"}
-	var promoteBeta atomic.Bool
-	f := newFixture(t, k8score.CacheConfig{}, func(f *fixture) {
-		f.dynamic = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-			map[schema.GroupVersionResource]string{widgets: "WidgetList", beta: "WidgetList", gadgets: "GadgetList", summaries: "SummaryList"},
-			widget("alpha", "w1", "uid-widget"), betaWidget(widget("alpha", "w1", "uid-widget")))
-		f.dynamic.PrependReactor("list", "widgets", func(a k8stesting.Action) (bool, runtime.Object, error) {
-			if a.GetResource().Version == "v1beta1" && a.GetNamespace() == "" && !promoteBeta.Load() {
-				return true, nil, apierrors.NewForbidden(beta.GroupResource(), "", errors.New("cluster-wide list denied"))
-			}
-			return false, nil, nil
-		})
-	})
-	f.watch(t, widgets)
-	if _, err := f.caches.Dynamic.List(beta, "alpha"); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "alpha's v1beta1 watch", func() bool { return f.caches.Dynamic.IsNamespaceSynced(beta, "alpha") })
-	s := begin(t, f.source())
-	if got := s.Object(ref("example.io", "Widget", "alpha", "w1")); got.State != ownership.Present {
-		t.Fatalf("Widget both versions hold = %v %+v", got.State, got.Gap)
-	}
-	if err := s.ValidateStores(); err != nil {
-		t.Fatal(err)
-	}
-	promoteBeta.Store(true)
-	if err := f.caches.Dynamic.EnsureWatching(beta); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ValidateStores(); !errors.Is(err, ownership.ErrStoreReplaced) {
-		t.Fatalf("ValidateStores after v1beta1's store was replaced = %v, want ErrStoreReplaced", err)
-	}
-}
-
 func waitUntil(t *testing.T, what string, done func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1232,7 +1022,7 @@ func TestBeginWithoutDiscoveryReadsTypedKinds(t *testing.T) {
 	if s.Catalog().Complete() {
 		t.Fatal("no discovery can't be a complete catalog")
 	}
-	if err := s.ValidateStores(); err != nil {
+	if err := s.ValidateCaches(); err != nil {
 		t.Fatal(err)
 	}
 }

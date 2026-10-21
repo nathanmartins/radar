@@ -115,7 +115,7 @@ func TestGitOpsManagersAreIndexedByMembers(t *testing.T) {
 		{kustomizations, "", ui, "shop"},
 		{helmReleases, "flux-system", ui, "ui"},
 	} {
-		got, _, ok := d.ReadableIndexed(tc.gvr, tc.namespace, GitOpsMembersIndex, tc.key)
+		got, ok := d.ReadableIndexed(tc.gvr, tc.namespace, GitOpsMembersIndex, tc.key)
 		if !ok || !slices.Equal(names(got), []string{tc.want}) {
 			t.Fatalf("%s under %q = %v, %v; want %s", tc.gvr.Resource, tc.key, names(got), ok, tc.want)
 		}
@@ -123,11 +123,11 @@ func TestGitOpsManagersAreIndexedByMembers(t *testing.T) {
 	// Several keys are read together: each manager filed under any of them,
 	// once, however many of them it is filed under.
 	w1 := []string{MemberKey(MemberAsRecorded, "example.io", "Widget", "", "w1"), MemberKey(MemberInDestination, "example.io", "Widget", "shop", "w1")}
-	got, _, ok := d.ReadableIndexed(apps, "", GitOpsMembersIndex, append([]string{ui, UnreadableMembersKey}, w1...)...)
+	got, ok := d.ReadableIndexed(apps, "", GitOpsMembersIndex, append([]string{ui, UnreadableMembersKey}, w1...)...)
 	if !ok || !slices.Equal(names(got), []string{"pending", "web", "widgets"}) {
 		t.Fatalf("applications under any of the keys = %v, %v; want pending, web and widgets once each", names(got), ok)
 	}
-	if _, _, ok := d.ReadableIndexed(widgets, "", GitOpsMembersIndex, ui); ok {
+	if _, ok := d.ReadableIndexed(widgets, "", GitOpsMembersIndex, ui); ok {
 		t.Fatal("a resource without the members index can't answer from it")
 	}
 }
@@ -245,7 +245,7 @@ func TestReadableIndexedReadsItsKeysTogether(t *testing.T) {
 	}
 	interleaving := &interleavingIndexer{Indexer: indexer, next: argoApplication("web", nil)}
 	d := &DynamicResourceCache{informers: map[informerKey]*informerEntry{{gvr: gvr}: {informer: syncedInformer{indexer: interleaving}}}}
-	objs, _, ok := d.ReadableIndexed(gvr, "", GitOpsMembersIndex, UnreadableMembersKey, MemberKey(MemberMeant, "", "Service", "shop", "ui"))
+	objs, ok := d.ReadableIndexed(gvr, "", GitOpsMembersIndex, UnreadableMembersKey, MemberKey(MemberMeant, "", "Service", "shop", "ui"))
 	if !ok || len(objs) != 1 {
 		t.Fatalf("found %v (ok %v); the manager moved between keys and was lost", objs, ok)
 	}
@@ -269,7 +269,7 @@ func TestReadableIndexedReadsSeveralOwnerUIDs(t *testing.T) {
 		}
 	}
 	d := &DynamicResourceCache{informers: map[informerKey]*informerEntry{{gvr: gvr}: {informer: syncedInformer{indexer: indexer}}}}
-	objs, _, ok := d.ReadableIndexed(gvr, "", OwnerUIDIndex, "uid-1", "uid-2")
+	objs, ok := d.ReadableIndexed(gvr, "", OwnerUIDIndex, "uid-1", "uid-2")
 	var names []string
 	for _, o := range objs {
 		names = append(names, o.GetName())

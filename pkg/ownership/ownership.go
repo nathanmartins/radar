@@ -19,17 +19,16 @@ type Source interface {
 	Begin() (ReadSession, error)
 }
 
-// ReadSession reads observations and records which store served each read, so
-// an answer assembled from several reads can be checked for having mixed a
-// store with its replacement. Reads are not a snapshot: each sees its store as
-// it is when read, so an answer should read each object once. A session is not
-// safe for concurrent use.
+// ReadSession reads observations from the caches current when it began. Reads
+// are not a snapshot: each sees its store as it is when read, as fresh as the
+// informer behind it, so an answer should read each object once. A session is
+// not safe for concurrent use.
 //
 // A session does no authorization: it reads everything Radar collected,
 // whoever asks, and its coverage describes Radar's collection, not what a
 // caller may see. A host decides what its caller may read before it shows an
-// answer; ValidateStores says the reads came from live stores, not that anyone
-// may see them.
+// answer; ValidateCaches says the reads came from the current caches, not that
+// anyone may see them.
 type ReadSession interface {
 	// Catalog is the served API as of Begin. It never changes.
 	Catalog() *Catalog
@@ -47,13 +46,14 @@ type ReadSession interface {
 	// member lists name ref, whatever namespaces the caller may read. It does no
 	// I/O and waits for nothing.
 	RecordingManagers(ref resourceid.Ref) RecordingManagersRead
-	// ValidateStores returns nil if every store the session read is still the one
-	// serving what it served then, and no version of a resource it read, left
-	// unread because nothing watched it then, is watched now; otherwise
-	// ErrCachesReplaced or ErrStoreReplaced. It says the reads came from live
-	// stores, not that they are still current. An answer built in a session
-	// must pass ValidateStores before it is used.
-	ValidateStores() error
+	// ValidateCaches returns ErrCachesReplaced if the caches the session read
+	// were stopped or replaced since it began, as when Radar switches clusters
+	// or rebuilds its cache, and nil otherwise. An answer built in a session
+	// must pass ValidateCaches before it is used: one read across a switch may
+	// mix two clusters. A store replaced within the caches, such as namespace
+	// watches giving way to a cluster-wide one, needs no check: what it
+	// answered was true when read, as with any informer's lag.
+	ValidateCaches() error
 }
 
 var (
@@ -64,11 +64,6 @@ var (
 	// that was missing when the session began and is there now, as while
 	// Radar starts, replaced nothing the session read.
 	ErrCachesReplaced = errors.New("ownership: the caches were replaced during the read")
-	// ErrStoreReplaced: a store the session read was replaced by another
-	// watch, as when a cluster-wide watch takes over from namespace ones, or a
-	// version of a resource it read is watched now that wasn't when the
-	// session chose which versions to read, and may hold a later update.
-	ErrStoreReplaced = errors.New("ownership: a store was replaced during the read")
 	// ErrObjectsChanged: the View's answers disagree, because an object it
 	// first read after searching an owner's dependents names that owner
 	// although the search didn't find it, a seed replaced a read an answer

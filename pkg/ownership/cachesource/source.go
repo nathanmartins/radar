@@ -108,16 +108,6 @@ type session struct {
 	watched map[schema.GroupResource][]schema.GroupVersionResource
 	// versions holds the versions the session reads each resource at.
 	versions map[schema.GroupResource][]schema.GroupVersionResource
-	// unconsulted holds, for each resource the session reads, the versions
-	// the catalog serves that weren't watched when it chose its versions. One
-	// watched later may hold what the others lack, so ValidateStores checks them.
-	// A version it chose, watched only elsewhere then, that starts serving a
-	// namespace after the session read there is not checked: like a version
-	// still loading there, it may hold a later update the answer lacks.
-	unconsulted map[schema.GroupResource][]schema.GroupVersionResource
-	// served records the informers that first answered each resource and
-	// namespace the session read dynamically.
-	served map[servedKey]k8score.DynamicReadServer
 	// byNamespace holds the namespaces each resource version is watched in
 	// when it is watched namespace by namespace (nil otherwise).
 	byNamespace map[schema.GroupVersionResource][]string
@@ -127,11 +117,6 @@ type session struct {
 	// recordingManagersRead, set only by tests, runs after RecordingManagers reads a manager
 	// kind, with the keys it read together.
 	recordingManagersRead func(kind resourceid.GroupKind, keys []string)
-}
-
-type servedKey struct {
-	gvr       schema.GroupVersionResource
-	namespace string
 }
 
 func (s *session) Catalog() *ownership.Catalog {
@@ -194,11 +179,10 @@ func (s *session) dynamicObject(ref resourceid.Ref, borrow func(*unstructured.Un
 	var answeredFrom *unstructured.Unstructured
 	answered := false
 	for _, gvr := range versions {
-		obj, server, found, ok := s.caches.Dynamic.ReadableObject(gvr, ref.Namespace, ref.Name)
+		obj, found, ok := s.caches.Dynamic.ReadableObject(gvr, ref.Namespace, ref.Name)
 		if !ok {
 			continue
 		}
-		s.record(gvr, ref.Namespace, server)
 		read := ownership.ObjectRead{State: ownership.Absent}
 		if found {
 			read = observe(ref, gvr.GroupVersion().String(), obj)
@@ -268,61 +252,14 @@ func (s *session) servingVersions(kind ownership.CatalogKind) []schema.GroupVers
 	}
 	if s.versions == nil {
 		s.versions = map[schema.GroupResource][]schema.GroupVersionResource{}
-		s.unconsulted = map[schema.GroupResource][]schema.GroupVersionResource{}
 	}
 	s.versions[gr] = versions
-	for _, v := range kind.Versions {
-		if gvr := gr.WithVersion(v); !slices.Contains(versions, gvr) {
-			s.unconsulted[gr] = append(s.unconsulted[gr], gvr)
-		}
-	}
 	return versions
 }
 
-func (s *session) record(gvr schema.GroupVersionResource, namespace string, server k8score.DynamicReadServer) {
-	key := servedKey{gvr: gvr, namespace: namespace}
-	if _, ok := s.served[key]; ok {
-		return
-	}
-	if s.served == nil {
-		s.served = map[servedKey]k8score.DynamicReadServer{}
-	}
-	s.served[key] = server
-}
-
-func (s *session) ValidateStores() error {
+func (s *session) ValidateCaches() error {
 	if s.caches.replacedBy(s.current()) || s.caches.retired() {
 		return ownership.ErrCachesReplaced
-	}
-	// A store replaced between two reads of one resource and namespace is no
-	// longer the one first recorded, so this also catches a session whose
-	// reads came from both.
-	var anywhere map[schema.GroupVersionResource]bool
-	for key, server := range s.served {
-		if current, _ := s.caches.Dynamic.ReadServer(key.gvr, key.namespace); !current.Same(server) {
-			return ownership.ErrStoreReplaced
-		}
-		// A version the session didn't read, because nothing watched it
-		// then, is watched now and may disagree with the one it read. A read
-		// of every namespace at once can be overtaken by a watch of any one
-		// of them, which ReadServer doesn't report for "".
-		for _, gvr := range s.unconsulted[key.gvr.GroupResource()] {
-			if key.namespace == "" {
-				if anywhere == nil {
-					anywhere = map[schema.GroupVersionResource]bool{}
-					for _, watched := range s.caches.Dynamic.WatchedGVRs() {
-						anywhere[watched] = true
-					}
-				}
-				if anywhere[gvr] {
-					return ownership.ErrStoreReplaced
-				}
-				continue
-			}
-			if started, _ := s.caches.Dynamic.ReadServer(gvr, key.namespace); !started.Same(k8score.DynamicReadServer{}) {
-				return ownership.ErrStoreReplaced
-			}
-		}
 	}
 	return nil
 }
