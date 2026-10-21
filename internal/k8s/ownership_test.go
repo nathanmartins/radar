@@ -62,7 +62,7 @@ func (s *scriptedSource) Begin() (ownership.ReadSession, error) {
 	return scriptedSession{ReadSession: inner, validate: v, calls: &s.calls}, nil
 }
 
-func TestAnswerOwnershipRetriesAReplacedStoreAndRefusesReplacedCaches(t *testing.T) {
+func TestAnswerOwnershipRetriesChangedObjectsAndRefusesReplacedCaches(t *testing.T) {
 	pod := resourceid.Ref{Kind: "Pod", Namespace: "alpha", Name: "web-1-a"}
 	var fetched ownership.Observation
 	for _, o := range ownershiptest.Fixture().Objects {
