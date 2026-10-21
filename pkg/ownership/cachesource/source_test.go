@@ -889,6 +889,24 @@ func TestObjectNeedsEveryWatchedVersionToAgree(t *testing.T) {
 	}
 }
 
+// A search over two watched versions needs them to hold each object at the
+// same update, as a read does: one watch holding an adoption the other lacks
+// leaves the namespace loading.
+func TestDependentCandidatesNeedVersionsToAgreeOnTheUpdate(t *testing.T) {
+	for name, domain := range map[string]ownership.SearchScope{"in alpha": ownership.InNamespace("alpha"), "everywhere": ownership.Everywhere()} {
+		t.Run(name, func(t *testing.T) {
+			f := versionsFixture(t, []runtime.Object{atVersion(widget("alpha", "w1", "uid-w1"), "41")}, []runtime.Object{betaWidget(atVersion(widget("alpha", "w1", "uid-w1"), "42"))}, nil)
+			got := begin(t, f.source()).DependentCandidates("uid-deploy", domain, 0)
+			widget := resourceid.GroupKind{Group: "example.io", Kind: "Widget"}
+			listed := slices.ContainsFunc(got.Candidates, func(c ownership.Observation) bool { return c.Ref.GroupKind() == widget })
+			loading := slices.ContainsFunc(got.Gaps, func(g ownership.Gap) bool { return g.Kind == widget && g.Reason == readreason.KindSyncPending })
+			if listed || !loading || got.Complete() {
+				t.Fatalf("got %+v; the two versions hold w1 at two updates", got)
+			}
+		})
+	}
+}
+
 // When no watched version answers, a version watched where the read is says
 // why: v1 watched only in alpha says nothing about beta, while v1beta1's
 // cluster-wide watch is loading, so a retry gets its answer, or has stalled.
