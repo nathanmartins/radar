@@ -2842,12 +2842,12 @@ func buildDashboard(ctx context.Context, cache *k8s.ResourceCache, namespace str
 		d.HelmReleases.Unavailable = true
 		d.HelmReleases.UnavailableReason = "Helm client not initialized."
 	} else {
-		username, groups := userFromContext(ctx)
+		user := userFromContext(ctx)
 		namespaces := resolveHelmListNamespaces(ctx, namespace)
 		if namespaces != nil && len(namespaces) == 0 {
 			// No namespace access: leave the zero-value Helm summary.
 		} else {
-			releases, err := helmClient.ListReleasesAcrossNamespaces(ctx, namespaces, username, groups)
+			releases, err := helmClient.ListReleasesAcrossNamespaces(ctx, namespaces, user)
 			if err != nil {
 				// Not fatal for the dashboard — a viewer with no helm access
 				// still sees everything else. Surface to LLM consumers via
@@ -3229,12 +3229,16 @@ func nativeHelmIssuesForContext(ctx context.Context, namespaces []string, filter
 	if helmClient == nil {
 		return nil, unchecked, false
 	}
-	username, groups := userFromContext(ctx)
+	user := userFromContext(ctx)
 	helmNamespaces := namespaces
 	if helmNamespaces == nil {
 		helmNamespaces = resolveHelmListNamespaces(ctx, "")
 	}
-	releases, err := helmClient.ListIssueReleasesAcrossNamespaces(ctx, helmNamespaces, username, groups)
+	releases, err := helmClient.ListIssueReleasesAcrossNamespaces(ctx, helmNamespaces, user)
+	username, groups := "", []string(nil)
+	if user != nil {
+		username, groups = user.Username, user.Groups
+	}
 	unchecked, incomplete = helm.ReportIssueRead(ctx, err, username, groups, helmNamespaces)
 	return issues.NativeHelmReleaseIssues(releases, time.Now()), unchecked, incomplete
 }

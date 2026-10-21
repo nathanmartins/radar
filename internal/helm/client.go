@@ -196,13 +196,13 @@ func ReinitClient(kubeconfig string) error {
 
 // getActionConfig creates a new action configuration for the given namespace
 func (c *Client) getActionConfig(namespace string) (*action.Configuration, error) {
-	return c.buildActionConfig(namespace, "", nil)
+	return c.buildActionConfig(namespace, nil)
 }
 
 // getActionConfigForUser creates an action configuration with K8s impersonation set.
 // Used for write operations when auth is enabled.
-func (c *Client) getActionConfigForUser(namespace, username string, groups []string) (*action.Configuration, error) {
-	return c.buildActionConfig(namespace, username, groups)
+func (c *Client) getActionConfigForUser(namespace string, user *pkgauth.User) (*action.Configuration, error) {
+	return c.buildActionConfig(namespace, user)
 }
 
 // buildActionConfig is the shared init path for both anonymous and
@@ -211,20 +211,20 @@ func (c *Client) getActionConfigForUser(namespace, username string, groups []str
 // rest.Config the rest of Radar already uses — Helm's default
 // ConfigFlags only resolves kubeconfig and would otherwise fall through
 // to localhost:8080 inside a pod with no ~/.kube/config.
-func (c *Client) buildActionConfig(namespace, username string, groups []string) (*action.Configuration, error) {
+func (c *Client) buildActionConfig(namespace string, user *pkgauth.User) (*action.Configuration, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	actionConfig := new(action.Configuration)
 
-	getter, err := c.restClientGetter(namespace, username, groups)
+	getter, err := c.restClientGetter(namespace, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build helm RESTClientGetter: %w", err)
 	}
 
 	if err := actionConfig.Init(getter, namespace, "secrets", log.Printf); err != nil {
-		if username != "" {
-			return nil, fmt.Errorf("failed to initialize helm action config for user %s: %w", username, err)
+		if user != nil {
+			return nil, fmt.Errorf("failed to initialize helm action config for user %s: %w", user.Username, err)
 		}
 		return nil, fmt.Errorf("failed to initialize helm action config: %w", err)
 	}
@@ -236,7 +236,7 @@ func (c *Client) buildActionConfig(namespace, username string, groups []string) 
 // Caller must hold c.mu (read or write). Reads global k8s package state
 // (rest.Config, current context); pure logic lives in
 // buildRESTClientGetter so it can be tested without those globals.
-func (c *Client) restClientGetter(namespace, username string, groups []string) (genericclioptions.RESTClientGetter, error) {
+func (c *Client) restClientGetter(namespace string, user *pkgauth.User) (genericclioptions.RESTClientGetter, error) {
 	// An explicit restConfig (CLI install driver) wins and forces the
 	// restConfig getter path (kubeconfig empty), so Helm targets exactly the
 	// cluster the caller resolved.
@@ -252,8 +252,7 @@ func (c *Client) restClientGetter(namespace, username string, groups []string) (
 		restConfig:     restConfig,
 		currentContext: k8s.GetContextName(),
 		namespace:      namespace,
-		username:       username,
-		groups:         groups,
+		user:           user,
 	})
 }
 
@@ -262,8 +261,7 @@ type restClientGetterParams struct {
 	restConfig     *rest.Config
 	currentContext string
 	namespace      string
-	username       string
-	groups         []string
+	user           *pkgauth.User
 }
 
 // buildRESTClientGetter is the pure logic behind Client.restClientGetter.
@@ -278,9 +276,11 @@ type restClientGetterParams struct {
 //     multi-source kubeconfig modes (--kubeconfig-dir / multi-path
 //     KUBECONFIG, where there's no single file path to hand Helm).
 func buildRESTClientGetter(p restClientGetterParams) (genericclioptions.RESTClientGetter, error) {
-	if p.kubeconfig == "" {
+	// A user token can't ride kubeconfig flags (they'd add the kubeconfig's
+	// own credentials), so user-token mode always uses the resolved config.
+	if p.kubeconfig == "" || (p.user != nil && pkgauth.UserTokenMode()) {
 		if p.restConfig != nil {
-			return newRESTConfigGetter(p.restConfig, p.namespace, p.username, p.groups), nil
+			return newRESTConfigGetter(p.restConfig, p.namespace, p.user), nil
 		}
 		// No kubeconfig path AND no resolved rest.Config — no point in
 		// handing Helm a getter that would fall through to localhost:8080.
@@ -307,9 +307,9 @@ func buildRESTClientGetter(p restClientGetterParams) (genericclioptions.RESTClie
 		configFlags.Context = &p.currentContext
 	}
 
-	if p.username != "" {
-		configFlags.Impersonate = &p.username
-		configFlags.ImpersonateGroup = &p.groups
+	if p.user != nil {
+		configFlags.Impersonate = &p.user.Username
+		configFlags.ImpersonateGroup = &p.user.Groups
 	}
 
 	return configFlags, nil
@@ -323,23 +323,23 @@ func (c *Client) GetActionConfig(namespace string) (*action.Configuration, error
 
 // GetActionConfigForUser returns an action configuration with K8s impersonation.
 // Exported for use by handlers that need to pass user-specific configs.
-func (c *Client) GetActionConfigForUser(namespace, username string, groups []string) (*action.Configuration, error) {
-	return c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) GetActionConfigForUser(namespace string, user *pkgauth.User) (*action.Configuration, error) {
+	return c.getActionConfigForUser(namespace, user)
 }
 
 // ListReleasesAsUser is ListReleases with K8s impersonation.
 // When username is empty, falls back to the ServiceAccount identity (same
 // behavior as ListReleases).
-func (c *Client) ListReleasesAsUser(ctx context.Context, namespace, username string, groups []string) ([]HelmRelease, error) {
-	if username == "" {
+func (c *Client) ListReleasesAsUser(ctx context.Context, namespace string, user *pkgauth.User) ([]HelmRelease, error) {
+	if user == nil {
 		return c.ListReleases(ctx, namespace)
 	}
 	contextName := k8s.GetContextName()
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return nil, err
 	}
-	return c.listReleasesWith(ctx, actionConfig, contextName, namespace, username, groups)
+	return c.listReleasesWith(ctx, actionConfig, contextName, namespace, user)
 }
 
 // ListReleases returns all Helm releases, optionally filtered by namespace
@@ -349,7 +349,7 @@ func (c *Client) ListReleases(ctx context.Context, namespace string) ([]HelmRele
 	if err != nil {
 		return nil, err
 	}
-	return c.listReleasesWith(ctx, actionConfig, contextName, namespace, "", nil)
+	return c.listReleasesWith(ctx, actionConfig, contextName, namespace, nil)
 }
 
 // ListReleasesAcrossNamespaces lists releases for an explicit set of namespaces
@@ -365,12 +365,12 @@ func (c *Client) ListReleases(ctx context.Context, namespace string) ([]HelmRele
 // skipped so one of them doesn't blank releases the caller CAN see. Only when
 // every namespace is forbidden is the 403 surfaced, so the UI still shows
 // "Access Restricted" rather than a misleading empty list.
-func (c *Client) ListReleasesAcrossNamespaces(ctx context.Context, namespaces []string, username string, groups []string) ([]HelmRelease, error) {
+func (c *Client) ListReleasesAcrossNamespaces(ctx context.Context, namespaces []string, user *pkgauth.User) ([]HelmRelease, error) {
 	if namespaces != nil && len(namespaces) == 0 {
 		return []HelmRelease{}, nil
 	}
 	contextName := k8s.GetContextName()
-	client, err := c.storageClient(username, groups)
+	client, err := c.storageClient(user)
 	if err != nil {
 		return nil, err
 	}
@@ -484,9 +484,9 @@ func sortHelmReleases(releases []HelmRelease) {
 // ListManifestResourcesAcrossNamespaces returns resource declarations from the
 // latest stored manifest of each visible Helm release. It follows the same
 // namespace and impersonation rules as ListReleasesAcrossNamespaces.
-func (c *Client) ListManifestResourcesAcrossNamespaces(ctx context.Context, namespaces []string, username string, groups []string) ([]ReleaseManifestResource, []string, int, error) {
+func (c *Client) ListManifestResourcesAcrossNamespaces(ctx context.Context, namespaces []string, user *pkgauth.User) ([]ReleaseManifestResource, []string, int, error) {
 	if namespaces == nil {
-		resources, parseErrors, err := c.listManifestResourcesAsUser(ctx, "", username, groups)
+		resources, parseErrors, err := c.listManifestResourcesAsUser(ctx, "", user)
 		return resources, nil, parseErrors, err
 	}
 	all := []ReleaseManifestResource{}
@@ -498,7 +498,7 @@ func (c *Client) ListManifestResourcesAcrossNamespaces(ctx context.Context, name
 			unavailable = append(unavailable, namespaces[index:]...)
 			return all, unavailable, parseErrors, err
 		}
-		resources, namespaceParseErrors, err := c.listManifestResourcesAsUser(ctx, namespace, username, groups)
+		resources, namespaceParseErrors, err := c.listManifestResourcesAsUser(ctx, namespace, user)
 		parseErrors += namespaceParseErrors
 		if err != nil {
 			unavailable = append(unavailable, namespace)
@@ -530,13 +530,13 @@ func (c *Client) ListManifestResourcesAcrossNamespaces(ctx context.Context, name
 	return all, unavailable, parseErrors, firstError
 }
 
-func (c *Client) listManifestResourcesAsUser(ctx context.Context, namespace, username string, groups []string) ([]ReleaseManifestResource, int, error) {
+func (c *Client) listManifestResourcesAsUser(ctx context.Context, namespace string, user *pkgauth.User) ([]ReleaseManifestResource, int, error) {
 	var actionConfig *action.Configuration
 	var err error
-	if username == "" {
+	if user == nil {
 		actionConfig, err = c.getActionConfig(namespace)
 	} else {
-		actionConfig, err = c.getActionConfigForUser(namespace, username, groups)
+		actionConfig, err = c.getActionConfigForUser(namespace, user)
 	}
 	if err != nil {
 		return nil, 0, err
@@ -544,7 +544,7 @@ func (c *Client) listManifestResourcesAsUser(ctx context.Context, namespace, use
 	if err := actionConfig.KubeClient.IsReachable(); err != nil {
 		return nil, 0, fmt.Errorf("failed to inspect helm manifests: %w", err)
 	}
-	client, err := c.storageClient(username, groups)
+	client, err := c.storageClient(user)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -574,12 +574,12 @@ func (c *Client) listManifestResourcesAsUser(ctx context.Context, namespace, use
 	return resources, parseErrors, nil
 }
 
-func (c *Client) listReleasesWith(ctx context.Context, actionConfig *action.Configuration, contextName, namespace, username string, groups []string) ([]HelmRelease, error) {
+func (c *Client) listReleasesWith(ctx context.Context, actionConfig *action.Configuration, contextName, namespace string, user *pkgauth.User) ([]HelmRelease, error) {
 	if err := actionConfig.KubeClient.IsReachable(); err != nil {
 		return nil, fmt.Errorf("failed to list helm releases: %w", err)
 	}
 
-	client, err := c.storageClient(username, groups)
+	client, err := c.storageClient(user)
 	if err != nil {
 		return nil, err
 	}
@@ -619,12 +619,12 @@ func helmReleaseRowsFromStorageSnapshot(ctx context.Context, snapshot *helmRelea
 
 // GetReleaseAsUser is GetRelease with K8s impersonation.
 // When username is empty, falls back to the ServiceAccount identity.
-func (c *Client) GetReleaseAsUser(namespace, name, username string, groups []string) (*HelmReleaseDetail, error) {
-	if username == "" {
+func (c *Client) GetReleaseAsUser(namespace, name string, user *pkgauth.User) (*HelmReleaseDetail, error) {
+	if user == nil {
 		return c.GetRelease(namespace, name)
 	}
 	contextName := k8s.GetContextName()
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return nil, err
 	}
@@ -737,11 +737,11 @@ func (c *Client) GetManifest(namespace, name string, revision int) (string, erro
 }
 
 // GetManifestAsUser is GetManifest with K8s impersonation.
-func (c *Client) GetManifestAsUser(namespace, name string, revision int, username string, groups []string) (string, error) {
-	if username == "" {
+func (c *Client) GetManifestAsUser(namespace, name string, revision int, user *pkgauth.User) (string, error) {
+	if user == nil {
 		return c.GetManifest(namespace, name, revision)
 	}
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return "", err
 	}
@@ -777,16 +777,16 @@ func (c *Client) GetValuesRevision(namespace, name string, allValues bool, revis
 }
 
 // GetValuesAsUser is GetValues with K8s impersonation.
-func (c *Client) GetValuesAsUser(namespace, name string, allValues bool, username string, groups []string) (*HelmValues, error) {
-	return c.GetValuesRevisionAsUser(namespace, name, allValues, 0, username, groups)
+func (c *Client) GetValuesAsUser(namespace, name string, allValues bool, user *pkgauth.User) (*HelmValues, error) {
+	return c.GetValuesRevisionAsUser(namespace, name, allValues, 0, user)
 }
 
 // GetValuesRevisionAsUser is GetValuesRevision with K8s impersonation.
-func (c *Client) GetValuesRevisionAsUser(namespace, name string, allValues bool, revision int, username string, groups []string) (*HelmValues, error) {
-	if username == "" {
+func (c *Client) GetValuesRevisionAsUser(namespace, name string, allValues bool, revision int, user *pkgauth.User) (*HelmValues, error) {
+	if user == nil {
 		return c.GetValuesRevision(namespace, name, allValues, revision)
 	}
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return nil, err
 	}
@@ -820,26 +820,26 @@ func getValuesWith(actionConfig *action.Configuration, name string, allValues bo
 
 // GetValuesDiff returns a values diff between two revisions.
 func (c *Client) GetValuesDiff(namespace, name string, revision1, revision2 int, allValues bool) (*ValuesDiff, error) {
-	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, "", nil, false)
+	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, nil, false)
 }
 
 // GetValuesDiffAsUser is GetValuesDiff with K8s impersonation.
-func (c *Client) GetValuesDiffAsUser(namespace, name string, revision1, revision2 int, allValues bool, username string, groups []string) (*ValuesDiff, error) {
-	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, username, groups, false)
+func (c *Client) GetValuesDiffAsUser(namespace, name string, revision1, revision2 int, allValues bool, user *pkgauth.User) (*ValuesDiff, error) {
+	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, user, false)
 }
 
 // GetValuesDiffAsUserRedacted redacts credential values in both revisions before
 // diffing for AI callers. The REST/UI diff retains the user's own values.
-func (c *Client) GetValuesDiffAsUserRedacted(namespace, name string, revision1, revision2 int, allValues bool, username string, groups []string) (*ValuesDiff, error) {
-	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, username, groups, true)
+func (c *Client) GetValuesDiffAsUserRedacted(namespace, name string, revision1, revision2 int, allValues bool, user *pkgauth.User) (*ValuesDiff, error) {
+	return c.getValuesDiff(namespace, name, revision1, revision2, allValues, user, true)
 }
 
-func (c *Client) getValuesDiff(namespace, name string, revision1, revision2 int, allValues bool, username string, groups []string, redact bool) (*ValuesDiff, error) {
-	values1, err := c.GetValuesRevisionAsUser(namespace, name, allValues, revision1, username, groups)
+func (c *Client) getValuesDiff(namespace, name string, revision1, revision2 int, allValues bool, user *pkgauth.User, redact bool) (*ValuesDiff, error) {
+	values1, err := c.GetValuesRevisionAsUser(namespace, name, allValues, revision1, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get values for revision %d: %w", revision1, err)
 	}
-	values2, err := c.GetValuesRevisionAsUser(namespace, name, allValues, revision2, username, groups)
+	values2, err := c.GetValuesRevisionAsUser(namespace, name, allValues, revision2, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get values for revision %d: %w", revision2, err)
 	}
@@ -857,28 +857,28 @@ func (c *Client) getValuesDiff(namespace, name string, revision1, revision2 int,
 
 // GetManifestDiff returns the diff between two revisions
 func (c *Client) GetManifestDiff(namespace, name string, revision1, revision2 int) (*ManifestDiff, error) {
-	return c.getManifestDiff(namespace, name, revision1, revision2, "", nil, false)
+	return c.getManifestDiff(namespace, name, revision1, revision2, nil, false)
 }
 
 // GetManifestDiffAsUser is GetManifestDiff with K8s impersonation.
-func (c *Client) GetManifestDiffAsUser(namespace, name string, revision1, revision2 int, username string, groups []string) (*ManifestDiff, error) {
-	return c.getManifestDiff(namespace, name, revision1, revision2, username, groups, false)
+func (c *Client) GetManifestDiffAsUser(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*ManifestDiff, error) {
+	return c.getManifestDiff(namespace, name, revision1, revision2, user, false)
 }
 
 // GetManifestDiffAsUserRedacted is GetManifestDiffAsUser with Secret values
 // removed, for callers that hand the diff to an AI model. The REST/UI diff
 // stays unredacted: it is the user's own view.
-func (c *Client) GetManifestDiffAsUserRedacted(namespace, name string, revision1, revision2 int, username string, groups []string) (*ManifestDiff, error) {
-	return c.getManifestDiff(namespace, name, revision1, revision2, username, groups, true)
+func (c *Client) GetManifestDiffAsUserRedacted(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*ManifestDiff, error) {
+	return c.getManifestDiff(namespace, name, revision1, revision2, user, true)
 }
 
-func (c *Client) getManifestDiff(namespace, name string, revision1, revision2 int, username string, groups []string, redact bool) (*ManifestDiff, error) {
-	manifest1, err := c.GetManifestAsUser(namespace, name, revision1, username, groups)
+func (c *Client) getManifestDiff(namespace, name string, revision1, revision2 int, user *pkgauth.User, redact bool) (*ManifestDiff, error) {
+	manifest1, err := c.GetManifestAsUser(namespace, name, revision1, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest for revision %d: %w", revision1, err)
 	}
 
-	manifest2, err := c.GetManifestAsUser(namespace, name, revision2, username, groups)
+	manifest2, err := c.GetManifestAsUser(namespace, name, revision2, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manifest for revision %d: %w", revision2, err)
 	}
@@ -900,20 +900,20 @@ func (c *Client) getManifestDiff(namespace, name string, revision1, revision2 in
 
 // GetNotesDiff returns a release notes diff between two revisions.
 func (c *Client) GetNotesDiff(namespace, name string, revision1, revision2 int) (*NotesDiff, error) {
-	return c.getNotesDiff(namespace, name, revision1, revision2, "", nil)
+	return c.getNotesDiff(namespace, name, revision1, revision2, nil)
 }
 
 // GetNotesDiffAsUser is GetNotesDiff with K8s impersonation.
-func (c *Client) GetNotesDiffAsUser(namespace, name string, revision1, revision2 int, username string, groups []string) (*NotesDiff, error) {
-	return c.getNotesDiff(namespace, name, revision1, revision2, username, groups)
+func (c *Client) GetNotesDiffAsUser(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*NotesDiff, error) {
+	return c.getNotesDiff(namespace, name, revision1, revision2, user)
 }
 
-func (c *Client) getNotesDiff(namespace, name string, revision1, revision2 int, username string, groups []string) (*NotesDiff, error) {
-	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, username, groups)
+func (c *Client) getNotesDiff(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*NotesDiff, error) {
+	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision1, err)
 	}
-	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, username, groups)
+	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision2, err)
 	}
@@ -1050,20 +1050,20 @@ func releaseNotes(rel *release.Release) string {
 
 // GetHooksDiff returns a hook metadata diff between two revisions.
 func (c *Client) GetHooksDiff(namespace, name string, revision1, revision2 int) (*HooksDiff, error) {
-	return c.getHooksDiff(namespace, name, revision1, revision2, "", nil)
+	return c.getHooksDiff(namespace, name, revision1, revision2, nil)
 }
 
 // GetHooksDiffAsUser is GetHooksDiff with K8s impersonation.
-func (c *Client) GetHooksDiffAsUser(namespace, name string, revision1, revision2 int, username string, groups []string) (*HooksDiff, error) {
-	return c.getHooksDiff(namespace, name, revision1, revision2, username, groups)
+func (c *Client) GetHooksDiffAsUser(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*HooksDiff, error) {
+	return c.getHooksDiff(namespace, name, revision1, revision2, user)
 }
 
-func (c *Client) getHooksDiff(namespace, name string, revision1, revision2 int, username string, groups []string) (*HooksDiff, error) {
-	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, username, groups)
+func (c *Client) getHooksDiff(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*HooksDiff, error) {
+	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision1, err)
 	}
-	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, username, groups)
+	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision2, err)
 	}
@@ -1087,20 +1087,20 @@ func nonNilHelmHooks(hooks []HelmHook) []HelmHook {
 
 // GetResourceDiff returns added/removed rendered resources between two revisions.
 func (c *Client) GetResourceDiff(namespace, name string, revision1, revision2 int) (*ResourceDiff, error) {
-	return c.getResourceDiff(namespace, name, revision1, revision2, "", nil)
+	return c.getResourceDiff(namespace, name, revision1, revision2, nil)
 }
 
 // GetResourceDiffAsUser is GetResourceDiff with K8s impersonation.
-func (c *Client) GetResourceDiffAsUser(namespace, name string, revision1, revision2 int, username string, groups []string) (*ResourceDiff, error) {
-	return c.getResourceDiff(namespace, name, revision1, revision2, username, groups)
+func (c *Client) GetResourceDiffAsUser(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*ResourceDiff, error) {
+	return c.getResourceDiff(namespace, name, revision1, revision2, user)
 }
 
-func (c *Client) getResourceDiff(namespace, name string, revision1, revision2 int, username string, groups []string) (*ResourceDiff, error) {
-	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, username, groups)
+func (c *Client) getResourceDiff(namespace, name string, revision1, revision2 int, user *pkgauth.User) (*ResourceDiff, error) {
+	rel1, err := c.getReleaseRevisionAsUser(namespace, name, revision1, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision1, err)
 	}
-	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, username, groups)
+	rel2, err := c.getReleaseRevisionAsUser(namespace, name, revision2, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release revision %d: %w", revision2, err)
 	}
@@ -1133,15 +1133,15 @@ func nonNilResourceChanges(changes []ResourceChange) []ResourceChange {
 	return changes
 }
 
-func (c *Client) getReleaseRevisionAsUser(namespace, name string, revision int, username string, groups []string) (*release.Release, error) {
+func (c *Client) getReleaseRevisionAsUser(namespace, name string, revision int, user *pkgauth.User) (*release.Release, error) {
 	var (
 		actionConfig *action.Configuration
 		err          error
 	)
-	if username == "" {
+	if user == nil {
 		actionConfig, err = c.getActionConfig(namespace)
 	} else {
-		actionConfig, err = c.getActionConfigForUser(namespace, username, groups)
+		actionConfig, err = c.getActionConfigForUser(namespace, user)
 	}
 	if err != nil {
 		return nil, err
@@ -1535,15 +1535,15 @@ type helmReleaseStorageSnapshot struct {
 // storageClient reads Helm release Secrets on the same cluster as c's action
 // configurations: the explicit rest.Config when c has one, else Radar's
 // current cluster.
-func (c *Client) storageClient(username string, groups []string) (kubernetes.Interface, error) {
+func (c *Client) storageClient(user *pkgauth.User) (kubernetes.Interface, error) {
 	c.mu.RLock()
 	restConfig := c.restConfig
 	c.mu.RUnlock()
 	if restConfig != nil {
 		var client kubernetes.Interface
 		var err error
-		if username != "" {
-			client, err = pkgauth.ImpersonatedClient(restConfig, username, groups)
+		if user != nil {
+			client, err = kubernetes.NewForConfig(k8s.UserRESTConfig(restConfig, user))
 		} else {
 			client, err = kubernetes.NewForConfig(restConfig)
 		}
@@ -1553,8 +1553,8 @@ func (c *Client) storageClient(username string, groups []string) (kubernetes.Int
 		return client, nil
 	}
 	client := k8s.GetClientInterface()
-	if username != "" {
-		impersonated, err := k8s.ImpersonatedClient(username, groups)
+	if user != nil {
+		impersonated, err := k8s.UserClient(user)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build impersonated client for release storage lookup: %w", err)
 		}
@@ -2173,20 +2173,20 @@ func extractDependencies(rel *release.Release) []ChartDependency {
 
 // CheckForUpgrade checks if a newer version of the chart is available in configured repos
 func (c *Client) CheckForUpgrade(namespace, name string) (*UpgradeInfo, error) {
-	return c.checkForUpgrade(namespace, name, "", nil)
+	return c.checkForUpgrade(namespace, name, nil)
 }
 
 // CheckForUpgradeAsUser is CheckForUpgrade with K8s impersonation on the
 // release read.
-func (c *Client) CheckForUpgradeAsUser(namespace, name, username string, groups []string) (*UpgradeInfo, error) {
-	return c.checkForUpgrade(namespace, name, username, groups)
+func (c *Client) CheckForUpgradeAsUser(namespace, name string, user *pkgauth.User) (*UpgradeInfo, error) {
+	return c.checkForUpgrade(namespace, name, user)
 }
 
-func (c *Client) checkForUpgrade(namespace, name, username string, groups []string) (*UpgradeInfo, error) {
+func (c *Client) checkForUpgrade(namespace, name string, user *pkgauth.User) (*UpgradeInfo, error) {
 	var actionConfig *action.Configuration
 	var err error
-	if username != "" {
-		actionConfig, err = c.getActionConfigForUser(namespace, username, groups)
+	if user != nil {
+		actionConfig, err = c.getActionConfigForUser(namespace, user)
 	} else {
 		actionConfig, err = c.getActionConfig(namespace)
 	}
@@ -2222,7 +2222,7 @@ func markUpgradeSourceIssue(info *UpgradeInfo, issue UpgradeSourceIssue, message
 
 // AvailableVersions is AvailableVersionsAsUser without impersonation.
 func (c *Client) AvailableVersions(namespace, name string) ([]string, error) {
-	return c.availableVersions(namespace, name, "", nil)
+	return c.availableVersions(namespace, name, nil)
 }
 
 // AvailableVersionsAsUser returns the newest-first list of chart versions a
@@ -2231,15 +2231,15 @@ func (c *Client) AvailableVersions(namespace, name string) ([]string, error) {
 // the upgrade dialog offer a specific target version instead of only "latest".
 // Returns an empty list (not an error) when the source can't be determined; the
 // dialog then falls back to latest-only.
-func (c *Client) AvailableVersionsAsUser(namespace, name, username string, groups []string) ([]string, error) {
-	return c.availableVersions(namespace, name, username, groups)
+func (c *Client) AvailableVersionsAsUser(namespace, name string, user *pkgauth.User) ([]string, error) {
+	return c.availableVersions(namespace, name, user)
 }
 
-func (c *Client) availableVersions(namespace, name, username string, groups []string) ([]string, error) {
+func (c *Client) availableVersions(namespace, name string, user *pkgauth.User) ([]string, error) {
 	var actionConfig *action.Configuration
 	var err error
-	if username != "" {
-		actionConfig, err = c.getActionConfigForUser(namespace, username, groups)
+	if user != nil {
+		actionConfig, err = c.getActionConfigForUser(namespace, user)
 	} else {
 		actionConfig, err = c.getActionConfig(namespace)
 	}
@@ -2342,8 +2342,8 @@ func (c *Client) RollbackWithProgress(namespace, name string, revision int, prog
 }
 
 // RollbackWithProgressAsUser is RollbackWithProgress with K8s impersonation.
-func (c *Client) RollbackWithProgressAsUser(namespace, name string, revision int, username string, groups []string, progressCh chan<- InstallProgress) error {
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) RollbackWithProgressAsUser(namespace, name string, revision int, user *pkgauth.User, progressCh chan<- InstallProgress) error {
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -2362,8 +2362,8 @@ func (c *Client) rollbackWithProgressUsing(actionConfig *action.Configuration, n
 }
 
 // RollbackAsUser performs a rollback with K8s impersonation.
-func (c *Client) RollbackAsUser(namespace, name string, revision int, username string, groups []string) error {
-	return c.RollbackWithProgressAsUser(namespace, name, revision, username, groups, nil)
+func (c *Client) RollbackAsUser(namespace, name string, revision int, user *pkgauth.User) error {
+	return c.RollbackWithProgressAsUser(namespace, name, revision, user, nil)
 }
 
 func useReleaseTargetNamespace(cfg *action.Configuration, name string) error {
@@ -2404,8 +2404,8 @@ func (c *Client) Uninstall(namespace, name string) error {
 }
 
 // UninstallAsUser removes a release with K8s impersonation.
-func (c *Client) UninstallAsUser(namespace, name string, username string, groups []string) error {
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) UninstallAsUser(namespace, name string, user *pkgauth.User) error {
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -2447,11 +2447,11 @@ func (c *Client) UpgradeWithProgress(namespace, name, targetVersion, repositoryN
 }
 
 // UpgradeWithProgressAsUser upgrades a release with K8s impersonation and progress reporting.
-func (c *Client) UpgradeWithProgressAsUser(namespace, name, targetVersion, repositoryName, username string, groups []string, progressCh chan<- InstallProgress) error {
+func (c *Client) UpgradeWithProgressAsUser(namespace, name, targetVersion, repositoryName string, user *pkgauth.User, progressCh chan<- InstallProgress) error {
 	sendProgress := progressSender(progressCh)
 	sendProgress("preparing", fmt.Sprintf("Getting current release %s...", name), "")
 
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -2459,8 +2459,8 @@ func (c *Client) UpgradeWithProgressAsUser(namespace, name, targetVersion, repos
 }
 
 // UpgradeAsUser upgrades a release with K8s impersonation.
-func (c *Client) UpgradeAsUser(namespace, name, targetVersion, repositoryName string, username string, groups []string) error {
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) UpgradeAsUser(namespace, name, targetVersion, repositoryName string, user *pkgauth.User) error {
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -2483,11 +2483,11 @@ func (c *Client) UpgradeWithValuesProgress(namespace, name, targetVersion, repos
 
 // UpgradeWithValuesProgressAsUser upgrades a release to a target version applying
 // the supplied user values with K8s impersonation and progress reporting.
-func (c *Client) UpgradeWithValuesProgressAsUser(namespace, name, targetVersion, repositoryName string, newValues map[string]any, username string, groups []string, progressCh chan<- InstallProgress) error {
+func (c *Client) UpgradeWithValuesProgressAsUser(namespace, name, targetVersion, repositoryName string, newValues map[string]any, user *pkgauth.User, progressCh chan<- InstallProgress) error {
 	sendProgress := progressSender(progressCh)
 	sendProgress("preparing", fmt.Sprintf("Getting current release %s...", name), "")
 
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -2889,14 +2889,14 @@ func (c *Client) locateChartPath(actionConfig *action.Configuration, chartURL, v
 
 // BatchCheckUpgrades checks for upgrades for all releases at once (more efficient)
 func (c *Client) BatchCheckUpgrades(ctx context.Context, namespace string) (*BatchUpgradeInfo, error) {
-	return c.batchCheckUpgrades(ctx, namespace, "", nil)
+	return c.batchCheckUpgrades(ctx, namespace, nil)
 }
 
 // BatchCheckUpgradesAsUser is BatchCheckUpgrades with K8s impersonation on
 // the release listing (the repo index reads are local-file only and don't
 // touch K8s).
-func (c *Client) BatchCheckUpgradesAsUser(ctx context.Context, namespace, username string, groups []string) (*BatchUpgradeInfo, error) {
-	return c.batchCheckUpgrades(ctx, namespace, username, groups)
+func (c *Client) BatchCheckUpgradesAsUser(ctx context.Context, namespace string, user *pkgauth.User) (*BatchUpgradeInfo, error) {
+	return c.batchCheckUpgrades(ctx, namespace, user)
 }
 
 // BatchCheckUpgradesAcrossNamespaces is BatchCheckUpgradesAsUser over an explicit
@@ -2909,13 +2909,13 @@ func (c *Client) BatchCheckUpgradesAsUser(ctx context.Context, namespace, userna
 // Upgrade info is best-effort enrichment layered on top of the release list, so
 // forbidden namespaces are skipped and an all-forbidden result returns an empty
 // map rather than an error — the release list itself is what surfaces the 403.
-func (c *Client) BatchCheckUpgradesAcrossNamespaces(ctx context.Context, namespaces []string, username string, groups []string) (*BatchUpgradeInfo, error) {
+func (c *Client) BatchCheckUpgradesAcrossNamespaces(ctx context.Context, namespaces []string, user *pkgauth.User) (*BatchUpgradeInfo, error) {
 	if namespaces == nil {
-		return c.BatchCheckUpgradesAsUser(ctx, "", username, groups)
+		return c.BatchCheckUpgradesAsUser(ctx, "", user)
 	}
 	merged := &BatchUpgradeInfo{Releases: make(map[string]*UpgradeInfo)}
 	for _, ns := range namespaces {
-		info, err := c.BatchCheckUpgradesAsUser(ctx, ns, username, groups)
+		info, err := c.BatchCheckUpgradesAsUser(ctx, ns, user)
 		if err != nil {
 			if IsForbiddenError(err) {
 				continue
@@ -2929,12 +2929,12 @@ func (c *Client) BatchCheckUpgradesAcrossNamespaces(ctx context.Context, namespa
 	return merged, nil
 }
 
-func (c *Client) batchCheckUpgrades(ctx context.Context, namespace, username string, groups []string) (*BatchUpgradeInfo, error) {
+func (c *Client) batchCheckUpgrades(ctx context.Context, namespace string, user *pkgauth.User) (*BatchUpgradeInfo, error) {
 	// Full *release.Release objects are needed (Chart.Metadata.Home/Sources
 	// drive source-affinity disambiguation). The storage snapshot carries
 	// them along with each release's storage namespace from one Secret list
 	// that stops with ctx, which Helm's own list action can't do.
-	client, err := c.storageClient(username, groups)
+	client, err := c.storageClient(user)
 	if err != nil {
 		return nil, err
 	}
@@ -2988,8 +2988,8 @@ func (c *Client) PreviewValuesChange(namespace, name string, newValues map[strin
 	return c.previewValuesChangeWith(actionConfig, name, newValues, targetVersion, repositoryName)
 }
 
-func (c *Client) PreviewValuesChangeAsUser(namespace, name string, newValues map[string]any, targetVersion, repositoryName string, username string, groups []string) (*ValuesPreviewResponse, error) {
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) PreviewValuesChangeAsUser(namespace, name string, newValues map[string]any, targetVersion, repositoryName string, user *pkgauth.User) (*ValuesPreviewResponse, error) {
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return nil, err
 	}
@@ -3065,8 +3065,8 @@ func (c *Client) ApplyValues(namespace, name string, newValues map[string]any) e
 }
 
 // ApplyValuesAsUser applies values with K8s impersonation.
-func (c *Client) ApplyValuesAsUser(namespace, name string, newValues map[string]any, username string, groups []string) error {
-	actionConfig, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) ApplyValuesAsUser(namespace, name string, newValues map[string]any, user *pkgauth.User) error {
+	actionConfig, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}
@@ -3433,8 +3433,8 @@ func (c *Client) Install(req *InstallRequest) (*HelmRelease, error) {
 }
 
 // InstallAsUser installs a new Helm release with K8s impersonation.
-func (c *Client) InstallAsUser(req *InstallRequest, username string, groups []string) (*HelmRelease, error) {
-	actionConfig, err := c.getActionConfigForUser(req.Namespace, username, groups)
+func (c *Client) InstallAsUser(req *InstallRequest, user *pkgauth.User) (*HelmRelease, error) {
+	actionConfig, err := c.getActionConfigForUser(req.Namespace, user)
 	if err != nil {
 		return nil, err
 	}
@@ -3623,8 +3623,8 @@ func (c *Client) InstallWithProgress(req *InstallRequest, progressCh chan<- Inst
 }
 
 // InstallWithProgressAsUser installs a new Helm release with K8s impersonation and streams progress.
-func (c *Client) InstallWithProgressAsUser(req *InstallRequest, progressCh chan<- InstallProgress, username string, groups []string) (*HelmRelease, error) {
-	actionConfig, err := c.getActionConfigForUser(req.Namespace, username, groups)
+func (c *Client) InstallWithProgressAsUser(req *InstallRequest, progressCh chan<- InstallProgress, user *pkgauth.User) (*HelmRelease, error) {
+	actionConfig, err := c.getActionConfigForUser(req.Namespace, user)
 	if err != nil {
 		return nil, err
 	}

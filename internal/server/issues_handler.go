@@ -228,10 +228,10 @@ func (s *Server) nativeHelmIssuesForRequest(r *http.Request, namespaces []string
 		return nil, unchecked, false
 	}
 	ctx := r.Context()
+	user := auth.UserFromContext(ctx)
 	username, groups := "", []string(nil)
-	if user := auth.UserFromContext(ctx); user != nil {
-		username = user.Username
-		groups = user.Groups
+	if user != nil {
+		username, groups = user.Username, user.Groups
 	}
 	helmNamespaces := namespaces
 	if helmNamespaces == nil {
@@ -241,7 +241,7 @@ func (s *Server) nativeHelmIssuesForRequest(r *http.Request, namespaces []string
 			return nil, unchecked, false
 		}
 	}
-	releases, err := helmClient.ListIssueReleasesAcrossNamespaces(ctx, helmNamespaces, username, groups)
+	releases, err := helmClient.ListIssueReleasesAcrossNamespaces(ctx, helmNamespaces, user)
 	unchecked, incomplete = helm.ReportIssueRead(ctx, err, username, groups, helmNamespaces)
 	return issues.NativeHelmReleaseIssues(releases, time.Now()), unchecked, incomplete
 }

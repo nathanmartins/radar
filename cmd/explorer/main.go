@@ -28,6 +28,7 @@ import (
 	"github.com/skyhook-io/radar/internal/reachability"
 	"github.com/skyhook-io/radar/internal/server"
 	versionpkg "github.com/skyhook-io/radar/internal/version"
+	pkgauth "github.com/skyhook-io/radar/pkg/auth"
 	"github.com/skyhook-io/radar/pkg/prom"
 	"golang.org/x/net/http/httpguts"
 	authv1 "k8s.io/api/authorization/v1"
@@ -197,6 +198,7 @@ func main() {
 	cloudToken := flag.String("cloud-token", os.Getenv("RADAR_CLOUD_TOKEN"), "Connection token from the Radar install flow (rhc_<random>). Env: RADAR_CLOUD_TOKEN")
 	cloudClusterName := flag.String("cluster-name", os.Getenv("RADAR_CLOUD_CLUSTER_NAME"), "Human-readable cluster name shown in Radar (required with --cloud-url). Env: RADAR_CLOUD_CLUSTER_NAME")
 	cloudInsecureSkipVerify := flag.Bool("cloud-insecure-skip-verify", os.Getenv("RADAR_CLOUD_INSECURE_SKIP_VERIFY") == "true", "Skip TLS verification on the Radar Hub tunnel — for trials against a Radar Cloud Self-Managed control plane with a self-signed cert (insecure: encrypted but not authenticated). Env: RADAR_CLOUD_INSECURE_SKIP_VERIFY")
+	k8sCredentials := flag.String("auth-k8s-credentials", os.Getenv("RADAR_AUTH_K8S_CREDENTIALS"), "How Radar authenticates the Kubernetes calls it makes for a user: impersonate (default; Radar's ServiceAccount impersonates the user) or user-token (the user's own token, received with each request through the Radar Cloud tunnel; no impersonation). user-token requires RADAR_CLOUD_MODE and a verified tunnel. Env: RADAR_AUTH_K8S_CREDENTIALS")
 	// Tunable deadlines for slow / high-latency / SSH-tunneled clusters.
 	// Defaults preserve the original behavior. Each flag falls back to an
 	// environment variable so Kubernetes deployments can source values from
@@ -247,6 +249,20 @@ func main() {
 		*authGroupsHeader = "X-Forwarded-Groups"
 		log.Printf("[cloud] RADAR_CLOUD_MODE=true: auth-mode forced to proxy, trusting tunnel-supplied identity headers")
 	}
+	credentialMode, err := pkgauth.ParseCredentialMode(*k8sCredentials)
+	if err != nil {
+		log.Fatalf("--auth-k8s-credentials: %v", err)
+	}
+	if credentialMode == pkgauth.CredentialsUserToken {
+		if !cloudMode {
+			log.Fatalf("--auth-k8s-credentials=user-token requires RADAR_CLOUD_MODE=true: the token arrives only through the Radar Cloud tunnel")
+		}
+		if *cloudInsecureSkipVerify || cloud.ValidateWebSocketURL(*cloudURL) != nil {
+			log.Fatalf("--auth-k8s-credentials=user-token needs a verified tunnel (wss:// without --cloud-insecure-skip-verify; ws:// only to loopback): user tokens travel over it")
+		}
+		log.Printf("[auth] Kubernetes credentials: user-token (no impersonation)")
+	}
+	pkgauth.SetCredentialMode(credentialMode)
 	if *showVersion {
 		fmt.Printf("radar %s\n", version)
 		os.Exit(0)
@@ -428,6 +444,7 @@ func main() {
 		CloudTunnelConfigured:       *cloudURL != "",
 		AuthConfig: auth.Config{
 			Mode:                      *authMode,
+			TokenReviewer:             k8s.ReviewUserToken,
 			Secret:                    *authSecret,
 			CookieTTL:                 *authCookieTTL,
 			UserHeader:                *authUserHeader,

@@ -1260,13 +1260,7 @@ func (s *Server) getDashboardHelmSummary(r *http.Request, namespaces []string) D
 		}
 	}
 
-	var username string
-	var groups []string
-	if user := auth.UserFromContext(r.Context()); user != nil {
-		username = user.Username
-		groups = user.Groups
-	}
-	releases, err := helmClient.ListReleasesAcrossNamespaces(r.Context(), namespaces, username, groups)
+	releases, err := helmClient.ListReleasesAcrossNamespaces(r.Context(), namespaces, auth.UserFromContext(r.Context()))
 	if err != nil {
 		if helm.ReleaseReadDeniedForCaller(err) {
 			return DashboardHelmSummary{Releases: []DashboardHelmRelease{}, Restricted: true}
