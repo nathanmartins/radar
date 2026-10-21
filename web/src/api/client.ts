@@ -2755,10 +2755,11 @@ function resourcePathSegments(
 }
 
 // A Radar without the clusterScopedPlaceholder flag reads "_" on the write and
-// audit routes as a real namespace, so it keeps getting the empty segment.
+// audit routes as a real namespace, so until the flag is confirmed these
+// routes keep the empty segment every Radar accepts when reached directly.
 function useEmptyNamespaceSegment(): string {
   const { data: capabilities } = useCapabilities();
-  return capabilities && !capabilities.features?.clusterScopedPlaceholder ? "" : "_";
+  return capabilities?.features?.clusterScopedPlaceholder ? "_" : "";
 }
 
 // Generic resource fetching - returns resource with relationships

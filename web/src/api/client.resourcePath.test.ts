@@ -111,8 +111,8 @@ describe('a Radar that reads "_" as cluster-scoped', () => {
 describe('before capabilities load', () => {
   beforeEach(() => connectedRadar(undefined))
 
-  it.each(clusterScoped)('sends "_" for $kind/$name', async (ref) => {
-    expect(await requestsFor(ref)).toEqual(expected(ref, '_', '_'))
+  it.each(clusterScoped)('keeps the empty segment on writes and audit for $kind/$name', async (ref) => {
+    expect(await requestsFor(ref)).toEqual(expected(ref, '_', ''))
   })
 })
 
