@@ -7,7 +7,7 @@ import { TRANSITION_BACKDROP, TRANSITION_MENU, TW_EASE_UI, overlayExitMs, overla
 import { SearchPillInput, type SearchModifier } from '@skyhook-io/k8s-ui'
 import { getResourceIcon } from '../../utils/resource-icons'
 import type { SearchHit, SearchMatchedField } from '../../api/client'
-import { contentMatchLabel, partialSearchNotice } from './omnibar-match'
+import { contentMatchLabel, partialSearchNotices } from './omnibar-match'
 import { recordUsageEvent } from '../../api/usage-data'
 import { bestScore, type CommandItem } from './command-items'
 import { SearchSyntaxHelp } from './SearchSyntaxHelp'
@@ -429,7 +429,7 @@ export const Omnibar = forwardRef<OmnibarHandle, OmnibarProps>(function Omnibar(
   const mac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac')
   const total = searchData?.total ?? 0
   const totalMatched = searchData?.total_matched ?? 0
-  const partialNotice = partialSearchNotice(searchData)
+  const partialNotices = partialSearchNotices(searchData)
   const hasNsPill = pills.some((p) => p.key === 'ns')
   const dropdownOpen = open && !suggesting && (rows.length > 0 || searchActive)
   // Presence: the scrim and the results panel are menu-kind overlays (140ms
@@ -497,11 +497,11 @@ export const Omnibar = forwardRef<OmnibarHandle, OmnibarProps>(function Omnibar(
                     <ResourceRow key={row.id} hit={row.hit} stale={resourcesStale} selected={row.id === selectedId} onSelect={() => selectRow(row.id)} onActivate={() => { if (!resourcesStale) execute(row) }} />
                   ))
                 )}
-                {!isFetching && !isError && partialNotice && (
-                  <div className="flex items-start gap-2 px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {partialNotice}
+                {!isFetching && !isError && partialNotices.map((notice) => (
+                  <div key={notice} className="flex items-start gap-2 px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {notice}
                   </div>
-                )}
+                ))}
               </>
             )}
 

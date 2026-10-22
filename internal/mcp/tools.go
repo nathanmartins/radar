@@ -3515,15 +3515,16 @@ type searchResponseMCP struct {
 }
 
 // searchFindingsHint says when Trivy reports were only partly searched, so a
-// missing CVE isn't read as "not affected".
+// missing CVE isn't read as "not affected". Both causes can hold at once.
 func searchFindingsHint(result search.Result) string {
-	switch {
-	case result.IncompleteFindings == search.FindingsTimeLimit:
-		return "Trivy report findings were only partly searched (time limit), so a missing CVE or package doesn't mean none exists. Narrow with ns: or kind:VulnerabilityReport and retry."
-	case result.AccessIncomplete:
-		return "Trivy reports in some namespaces were left out because your access to them isn't confirmed yet. Search again to include them."
+	var hints []string
+	if result.AccessIncomplete {
+		hints = append(hints, "Trivy reports in some namespaces were left out because your access to them couldn't be confirmed in this search (its limit on access checks was reached, or a check failed). Searching again checks more namespaces.")
 	}
-	return ""
+	if result.IncompleteFindings == search.FindingsTimeLimit {
+		hints = append(hints, "The search ran out of time before checking every Trivy report's findings, so a missing CVE or package doesn't mean none exists. Narrow with ns: or kind: and retry.")
+	}
+	return strings.Join(hints, " ")
 }
 
 // searchKindHint tells the agent what to do about each kind the search could

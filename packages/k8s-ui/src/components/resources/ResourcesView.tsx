@@ -148,6 +148,7 @@ import {
   SEVERITY_DOT_COLOR,
   healthColors,
 } from './resource-utils'
+import { TRIVY_GROUP, searchTrivyFindings, type TrivyFindingMatch } from './resource-utils-trivy'
 import { getGenericResourceStatus } from './generic-status'
 import { ActiveFilterBar } from './ActiveFilterBar'
 import { getIstioGatewayServerCount, getIstioGatewaySelectorString } from './resource-utils-istio'
@@ -5462,6 +5463,14 @@ export function ResourcesView({
     }
   }, [regexMode, deferredSearchTerm])
 
+  // Regex mode stays on names: a pattern run over every finding could
+  // backtrack for seconds on the main thread.
+  const isTrivyKind = selectedKind.group === TRIVY_GROUP
+  const findingsSearch = useMemo(() => {
+    if (!tableActive || !resources || !deferredSearchTerm || regexMode || !isTrivyKind) return null
+    return searchTrivyFindings(resources, deferredSearchTerm.toLowerCase())
+  }, [tableActive, resources, deferredSearchTerm, regexMode, isTrivyKind])
+
   // Filter resources by search term, status, problems, and sort
   const filteredResources = useMemo(() => {
     if (!tableActive || !resources) return []
@@ -5482,7 +5491,8 @@ export function ResourcesView({
         const term = deferredSearchTerm.toLowerCase()
         result = result.filter((r: any) =>
           r.metadata?.name?.toLowerCase().includes(term) ||
-          r.metadata?.namespace?.toLowerCase().includes(term)
+          r.metadata?.namespace?.toLowerCase().includes(term) ||
+          !!findingsSearch?.matches.has(r)
         )
       }
     }
@@ -5650,7 +5660,7 @@ export function ResourcesView({
     }
 
     return result
-  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, getDisplayFilterValue, extraColumnsByKey, podMatchesProblemFilter])
+  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, findingsSearch, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, getDisplayFilterValue, extraColumnsByKey, podMatchesProblemFilter])
 
   // For nodes table: compute the majority minor version so outliers can be highlighted
   const majorityNodeMinorVersion = useMemo(() => {
@@ -6088,7 +6098,7 @@ export function ResourcesView({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-tertiary" />
               <Input
                 ref={searchInputRef}
-                placeholder={regexMode ? 'Search by regex... (press /)' : 'Search... (press /)'}
+                placeholder={regexMode ? 'Search by regex... (press /)' : isTrivyKind ? 'Search names and findings... (press /)' : 'Search... (press /)'}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={(e) => {
@@ -6149,6 +6159,11 @@ export function ResourcesView({
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
+              )}
+              {!searchRegex.error && findingsSearch?.truncated && (
+                <div className="absolute left-0 top-full mt-1 z-10 px-2 py-1 rounded bg-theme-elevated border border-theme-border text-xs text-theme-text-secondary shadow-theme-sm">
+                  Too many findings to search them all here; some weren't searched.
+                </div>
               )}
               {searchRegex.error && (
                 <div
@@ -6614,6 +6629,13 @@ export function ResourcesView({
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+              {searchTerm && isTrivyKind && (
+                <p className="text-xs mt-1 text-theme-text-disabled">
+                  {regexMode
+                    ? 'Regex search matches names and namespaces only.'
+                    : 'Searched names, namespaces and report findings (CVE, package, check ID, image).'}
+                </p>
+              )}
               {namespaces.length > 0 && <p className="text-sm mt-1 text-theme-text-disabled">Searching in {namespaces.length === 1 ? `namespace: ${namespaces[0]}` : `${namespaces.length} namespaces`}</p>}
               <ActiveFilterBar
                 columnFilters={columnFilters}
@@ -6922,6 +6944,7 @@ export function ResourcesView({
                     comparePickIndex={pickIdx}
                     rowHref={rowHrefFor?.(resource)}
                     onRowCheckToggle={toggleChecked}
+                    findingMatch={findingsSearch?.matches.get(resource)}
                   />
                 )
               }}
@@ -7089,6 +7112,9 @@ interface ResourceRowCellsProps {
    *  is unaffected (still toggles picks). */
   rowHref?: string
   onRowCheckToggle?: (resource: any) => void
+  /** What a Trivy report matched the table search through, when its name
+   *  and namespace didn't. */
+  findingMatch?: TrivyFindingMatch
 }
 
 function rowHighlightClass(
@@ -7110,7 +7136,7 @@ function rowHighlightClass(
   return 'group-hover/row:bg-theme-surface/50'
 }
 
-const ResourceRowCells = React.memo(function ResourceRowCells({ resource, kind, group, columns, extraColumnsByKey, hasSpacerColumn, isSelected, isHighlighted, isChecked, showCheckbox, majorityNodeMinorVersion, storeProviders, onRowClick, onRowMouseEnter, compareMode, comparePickIndex = -1, rowHref, onRowCheckToggle }: ResourceRowCellsProps) {
+const ResourceRowCells = React.memo(function ResourceRowCells({ resource, kind, group, columns, extraColumnsByKey, hasSpacerColumn, isSelected, isHighlighted, isChecked, showCheckbox, majorityNodeMinorVersion, storeProviders, onRowClick, onRowMouseEnter, compareMode, comparePickIndex = -1, rowHref, onRowCheckToggle, findingMatch }: ResourceRowCellsProps) {
   const rowHighlight = rowHighlightClass(compareMode, comparePickIndex, isSelected, isHighlighted, isChecked)
   const pickedSide = comparePickIndex === 0 ? 'a' : comparePickIndex === 1 ? 'b' : null
   const onClick = onRowClick ? () => onRowClick(resource, !!isSelected) : undefined
@@ -7180,6 +7206,7 @@ const ResourceRowCells = React.memo(function ResourceRowCells({ resource, kind, 
             storeProviders={storeProviders}
             extraColumn={extraColumnsByKey?.get(col.key)}
             nameHref={col.key === 'name' ? rowHref : undefined}
+            findingMatch={col.key === 'name' ? findingMatch : undefined}
           />
         </td>
       ))}
@@ -7229,9 +7256,10 @@ interface CellContentProps {
   /** When set on the name column, the resource name renders as `<a href>`
    *  so ⌘-click / copy-link / hover-URL all work. */
   nameHref?: string
+  findingMatch?: TrivyFindingMatch
 }
 
-function CellContent({ resource, kind, column, group, majorityNodeMinorVersion, storeProviders, extraColumn, nameHref }: CellContentProps) {
+function CellContent({ resource, kind, column, group, majorityNodeMinorVersion, storeProviders, extraColumn, nameHref, findingMatch }: CellContentProps) {
   const { auditBadges } = useContext(ResourcesViewDataContext)
   // Parent-injected extra columns short-circuit the built-in switch.
   // Used by hosts that inject leading columns (e.g. a multi-cluster Cluster column).
@@ -7249,7 +7277,7 @@ function CellContent({ resource, kind, column, group, majorityNodeMinorVersion, 
     const auditTotal = audit ? audit.danger + audit.warning : 0
     return (
       <div className="flex items-center gap-1.5 min-w-0">
-        <Tooltip content={meta.name}>
+        <Tooltip content={meta.name} wrapperClassName={findingMatch ? 'min-w-0' : undefined}>
           {nameHref ? (
             <a
               href={nameHref}
@@ -7264,6 +7292,13 @@ function CellContent({ resource, kind, column, group, majorityNodeMinorVersion, 
           )}
         </Tooltip>
         <CopyNameButton name={meta.name} />
+        {findingMatch && (
+          <Tooltip content={findingMatch.text}>
+            <span className="shrink-0 text-xs italic text-theme-text-tertiary cursor-help">
+              {findingMatch.site === 'image' ? 'in image' : 'in findings'}
+            </span>
+          </Tooltip>
+        )}
         {auditTotal > 0 && audit && (
           <Tooltip content={audit.messages && audit.messages.length > 0
             ? <AuditBadgeTooltip messages={audit.messages} />

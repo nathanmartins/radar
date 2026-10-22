@@ -740,7 +740,7 @@ function ExecutionUnitDetails({ unit, namespace, pullSecrets, compact }: { unit:
       <div className={clsx(!compact && 'rounded-md bg-theme-elevated/40 px-3 py-2')}>
         {!compact && <div className="mb-1 flex items-center justify-between gap-3"><span className="truncate text-xs font-medium text-theme-text-primary">{unit.name}</span><span className="text-[10px] uppercase tracking-wide text-theme-text-tertiary">{unit.type}</span></div>}
         <div className="space-y-1">
-          {unit.image && <DefinitionFact label="Image" value={unit.image} mono onClick={canBrowseImage ? () => setBrowseImage(true) : undefined} tooltip={canBrowseImage ? 'Browse image filesystem from registry' : undefined} />}
+          {unit.image && <DefinitionFact label="Image" value={unit.image} mono onClick={canBrowseImage ? () => setBrowseImage(true) : undefined} tooltip={canBrowseImage ? 'Browse image filesystem from registry' : IMAGE_BROWSE_VIA_POD} hint={!canBrowseImage} />}
           {unit.command && <DefinitionFact label="Command" value={unit.command} mono />}
           {!compact && unit.requests && <DefinitionFact label="Requests" value={unit.requests} />}
           {!compact && unit.limits && <DefinitionFact label="Limits" value={unit.limits} />}
@@ -760,15 +760,17 @@ function ExecutionUnitDetails({ unit, namespace, pullSecrets, compact }: { unit:
   )
 }
 
-function DefinitionFact({ label, value, mono = false, onClick, tooltip }: { label: string; value: string; mono?: boolean; onClick?: () => void; tooltip?: string }) {
-  const valueClassName = clsx('break-words text-theme-text-primary', mono && 'font-mono text-xs', onClick && 'text-accent-text hover:underline')
+const IMAGE_BROWSE_VIA_POD = "With sign-in on, browse an image's files from one of its Pods."
+
+function DefinitionFact({ label, value, mono = false, onClick, tooltip, hint = false }: { label: string; value: string; mono?: boolean; onClick?: () => void; tooltip?: string; hint?: boolean }) {
+  const valueClassName = clsx('break-words text-theme-text-primary', mono && 'font-mono text-xs', onClick && 'text-accent-text hover:underline', hint && 'cursor-help underline decoration-dotted decoration-theme-text-tertiary underline-offset-2')
   return (
     <div className="flex items-start justify-between gap-3 text-sm">
       <span className="shrink-0 text-theme-text-tertiary">{label}</span>
       <Tooltip content={tooltip ?? value} delay={300} wrapperClassName="min-w-0 text-right">
         {onClick
           ? <button type="button" onClick={onClick} className={clsx(valueClassName, 'text-right')}>{value}</button>
-          : <span className={valueClassName}>{value}</span>}
+          : <span className={valueClassName} tabIndex={hint ? 0 : undefined}>{value}</span>}
       </Tooltip>
     </div>
   )
