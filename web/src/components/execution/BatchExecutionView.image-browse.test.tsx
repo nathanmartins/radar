@@ -41,6 +41,6 @@ describe('template image in the run view', () => {
     auth.enabled = true
     const html = render()
     expect(html).not.toMatch(new RegExp(`<button[^>]*>${image}</button>`))
-    expect(html).toMatch(new RegExp(`<span class="[^"]*decoration-dotted[^"]*" tabindex="0">${image}</span>`))
+    expect(html).toMatch(new RegExp(`<span class="[^"]*decoration-dotted[^"]*" tabindex="0">${image}<span class="sr-only">. With sign-in on, browse an image&#x27;s files from one of its Pods.</span></span>`))
   })
 })

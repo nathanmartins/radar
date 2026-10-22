@@ -148,7 +148,7 @@ import {
   SEVERITY_DOT_COLOR,
   healthColors,
 } from './resource-utils'
-import { TRIVY_GROUP, searchTrivyFindings, type TrivyFindingMatch } from './resource-utils-trivy'
+import { TRIVY_GROUP, searchTrivyFindings, type TrivyFindingMatch, type TrivyFindingsSearch } from './resource-utils-trivy'
 import { getGenericResourceStatus } from './generic-status'
 import { ActiveFilterBar } from './ActiveFilterBar'
 import { getIstioGatewayServerCount, getIstioGatewaySelectorString } from './resource-utils-istio'
@@ -5463,21 +5463,18 @@ export function ResourcesView({
     }
   }, [regexMode, deferredSearchTerm])
 
-  // Regex mode stays on names: a pattern run over every finding could
-  // backtrack for seconds on the main thread.
   const isTrivyKind = selectedKind.group === TRIVY_GROUP
-  const findingsSearch = useMemo(() => {
-    if (!tableActive || !resources || !deferredSearchTerm || regexMode || !isTrivyKind) return null
-    return searchTrivyFindings(resources, deferredSearchTerm.toLowerCase())
-  }, [tableActive, resources, deferredSearchTerm, regexMode, isTrivyKind])
 
   // Filter resources by search term, status, problems, and sort
-  const filteredResources = useMemo(() => {
-    if (!tableActive || !resources) return []
+  const { list: filteredResources, findings: findingsSearch } = useMemo((): { list: any[]; findings: TrivyFindingsSearch | null } => {
+    if (!tableActive || !resources) return { list: [], findings: null }
 
     let result = resources
+    let findings: TrivyFindingsSearch | null = null
 
-    // Apply search filter
+    // Apply search filter. On Trivy report kinds a plain search also matches
+    // findings and runs below, after the other filters. Regex mode stays on
+    // names: a pattern run over every finding could backtrack for seconds.
     if (deferredSearchTerm) {
       if (regexMode) {
         const re = searchRegex.re
@@ -5487,12 +5484,11 @@ export function ResourcesView({
             re.test(r.metadata?.namespace ?? '')
           )
         }
-      } else {
+      } else if (!isTrivyKind) {
         const term = deferredSearchTerm.toLowerCase()
         result = result.filter((r: any) =>
           r.metadata?.name?.toLowerCase().includes(term) ||
-          r.metadata?.namespace?.toLowerCase().includes(term) ||
-          !!findingsSearch?.matches.has(r)
+          r.metadata?.namespace?.toLowerCase().includes(term)
         )
       }
     }
@@ -5562,6 +5558,19 @@ export function ResourcesView({
           ref.kind === ownerKind && ref.name === ownerName
         )
       })
+    }
+
+    // Trivy findings are searched after the other filters, so rows they hide
+    // don't spend the findings budget.
+    if (deferredSearchTerm && !regexMode && isTrivyKind) {
+      const term = deferredSearchTerm.toLowerCase()
+      const matched = searchTrivyFindings(result, term)
+      findings = matched
+      result = result.filter((r: any) =>
+        r.metadata?.name?.toLowerCase().includes(term) ||
+        r.metadata?.namespace?.toLowerCase().includes(term) ||
+        matched.matches.has(r)
+      )
     }
 
     // Apply custom sorting if set. Extra columns override
@@ -5659,8 +5668,8 @@ export function ResourcesView({
       }
     }
 
-    return result
-  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, findingsSearch, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, getDisplayFilterValue, extraColumnsByKey, podMatchesProblemFilter])
+    return { list: result, findings }
+  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, isTrivyKind, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, getDisplayFilterValue, extraColumnsByKey, podMatchesProblemFilter])
 
   // For nodes table: compute the majority minor version so outliers can be highlighted
   const majorityNodeMinorVersion = useMemo(() => {
@@ -6630,7 +6639,7 @@ export function ResourcesView({
                 </button>
               )}
               {searchTerm && isTrivyKind && (
-                <p className="text-xs mt-1 text-theme-text-disabled">
+                <p className="text-xs mt-1 text-theme-text-tertiary">
                   {regexMode
                     ? 'Regex search matches names and namespaces only.'
                     : 'Searched names, namespaces and report findings (CVE, package, check ID, image).'}

@@ -770,7 +770,7 @@ function DefinitionFact({ label, value, mono = false, onClick, tooltip, hint = f
       <Tooltip content={tooltip ?? value} delay={300} wrapperClassName="min-w-0 text-right">
         {onClick
           ? <button type="button" onClick={onClick} className={clsx(valueClassName, 'text-right')}>{value}</button>
-          : <span className={valueClassName} tabIndex={hint ? 0 : undefined}>{value}</span>}
+          : <span className={valueClassName} tabIndex={hint ? 0 : undefined}>{value}{hint && tooltip && <span className="sr-only">. {tooltip}</span>}</span>}
       </Tooltip>
     </div>
   )

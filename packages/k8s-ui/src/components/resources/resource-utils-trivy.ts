@@ -87,8 +87,23 @@ function asArray(v: unknown): any[] {
   return Array.isArray(v) ? v : []
 }
 
+// findingLabel joins a finding's parts and caps it at MAX_FINDING_LABEL
+// UTF-8 bytes on a character boundary, as server search does, so a phrase
+// that falls past the cap matches in neither place.
 function findingLabel(...parts: string[]): string {
-  return parts.filter(Boolean).join(' ').slice(0, MAX_FINDING_LABEL)
+  const label = parts.filter(Boolean).join(' ')
+  // A UTF-16 unit is at most 3 UTF-8 bytes, so short labels need no count.
+  if (label.length * 3 <= MAX_FINDING_LABEL) return label
+  let bytes = 0
+  let end = 0
+  for (const ch of label) {
+    const cp = ch.codePointAt(0) ?? 0
+    const size = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4
+    if (bytes + size > MAX_FINDING_LABEL) break
+    bytes += size
+    end += ch.length
+  }
+  return label.slice(0, end)
 }
 
 // trivyReportImageRef renders a report's scanned image the way search

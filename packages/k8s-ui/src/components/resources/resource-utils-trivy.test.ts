@@ -51,6 +51,12 @@ describe('searchTrivyFindings', () => {
     expect(searchTrivyFindings([vuln], 'php8.').matches.size).toBe(0)
   })
 
+  it('caps a finding at 256 UTF-8 bytes for phrases, like server search', () => {
+    const wide = { metadata: { name: 'r', namespace: 'n' }, report: { components: { components: [{ name: 'é'.repeat(128), version: 'needle' }] } } }
+    expect(searchTrivyFindings([wide], 'é needle').matches.size).toBe(0)
+    expect(searchTrivyFindings([wide], 'needle').matches.size).toBe(1)
+  })
+
   it('matches a phrase across one finding, never across findings', () => {
     expect(searchTrivyFindings([vuln], 'php83 8.3.20').matches.has(vuln)).toBe(true)
     expect(searchTrivyFindings([vuln], 'libssl3 8.3.20').matches.has(vuln)).toBe(false)

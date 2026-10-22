@@ -498,7 +498,7 @@ export const Omnibar = forwardRef<OmnibarHandle, OmnibarProps>(function Omnibar(
                   ))
                 )}
                 {!isFetching && !isError && partialNotices.map((notice) => (
-                  <div key={notice} className="flex items-start gap-2 px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  <div key={notice} className="flex items-start gap-2 px-3 py-1.5 text-xs text-warning-text">
                     <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {notice}
                   </div>
                 ))}
