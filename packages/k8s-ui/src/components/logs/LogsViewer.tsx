@@ -79,6 +79,9 @@ export function LogsViewer({
   const { tailLines, sinceSeconds } = parseLogRange(logRange)
   const { entries, isFollowing, pendingLineCount, retainedLineCount, missingLineCount, getRetainedEntries, setFollowing, append, set, clear } = useLogBuffer()
   const { isStreaming, streamError, streamErrorCode, connecting, startStreaming, stopStreaming } = useLogStream()
+  const selectionKey = JSON.stringify([_namespace, podName, selectedContainer, logRange])
+  // Identify the selection that supplied the buffered snapshot or stream.
+  const bufferSelectionRef = useRef<{ key: string; previous: boolean } | null>(null)
 
   const willAutoStream = autoStream && !!createStream
   // Tracks the container we've already auto-started for, so re-renders don't
@@ -109,6 +112,7 @@ export function LogsViewer({
     try {
       const data = await fetchLogs({ container: selectedContainer, tailLines, sinceSeconds, previous: showPrevious })
       if (seq !== loadSeqRef.current) return
+      bufferSelectionRef.current = { key: selectionKey, previous: showPrevious }
       const logText = data[selectedContainer] ?? Object.values(data)[0] ?? ''
       set(logText.split('\n').filter(Boolean).map(line => {
         const { timestamp, content } = parseLogLine(line)
@@ -123,11 +127,12 @@ export function LogsViewer({
         return
       }
       console.error('Failed to fetch logs:', err)
+      if (bufferSelectionRef.current?.key !== selectionKey || bufferSelectionRef.current.previous !== showPrevious) set([])
       setFetchError(err instanceof Error ? err.message : 'Failed to fetch logs')
     } finally {
       if (seq === loadSeqRef.current) setIsLoading(false)
     }
-  }, [selectedContainer, tailLines, sinceSeconds, showPrevious, fetchLogs, set, stopStreaming])
+  }, [selectedContainer, tailLines, sinceSeconds, showPrevious, fetchLogs, set, stopStreaming, selectionKey])
 
   // When auto-streaming the stream supplies the initial tail, so the static
   // snapshot fetch is skipped to avoid a redundant request and a flash of
@@ -170,6 +175,7 @@ export function LogsViewer({
     // they don't duplicate lines already in the buffer (the snapshot on the
     // manual path, or an earlier stream on restart).
     clear()
+    bufferSelectionRef.current = { key: selectionKey, previous: false }
     startStreaming(
       () => createStream({ container: selectedContainer, tailLines: 100, sinceSeconds }),
       {
@@ -181,7 +187,7 @@ export function LogsViewer({
       },
       'Log stream connection failed',
     )
-  }, [createStream, startStreaming, selectedContainer, sinceSeconds, append, clear])
+  }, [createStream, startStreaming, selectedContainer, sinceSeconds, append, clear, selectionKey])
 
   const handleStopStreaming = useCallback(() => {
     userStoppedRef.current = true
@@ -241,6 +247,9 @@ export function LogsViewer({
   const streamAnswer = isClusterAnswerCode(streamErrorCode) ? streamError : null
 
   return (
+    <div className="flex h-full min-h-0 flex-col">
+    {(fetchError || streamError) && entries.length > 0 && <div role="alert" className="shrink-0 border-b border-theme-border bg-theme-surface px-3 py-2 text-xs text-theme-text-secondary">{fetchError || streamError} · Previously loaded logs remain below.</div>}
+    <div className="min-h-0 flex-1">
     <LogCore
       entries={entries}
       isFollowing={isFollowing}
@@ -250,7 +259,7 @@ export function LogsViewer({
       missingLineCount={missingLineCount}
       getRetainedEntries={getRetainedEntries}
       isLoading={isLoading || isConnecting}
-      errorMessage={fetchError || (entries.length === 0 && !emptyMessage && !streamAnswer ? streamError : null)}
+      errorMessage={entries.length === 0 ? fetchError || (!emptyMessage && !streamAnswer ? streamError : null) : null}
       isStreaming={isStreaming}
       onStartStream={createStream ? handleStartStreaming : undefined}
       onStopStream={handleStopStreaming}
@@ -262,5 +271,7 @@ export function LogsViewer({
       forceDark={forceDark}
       defaultDark={defaultDark}
     />
+    </div>
+    </div>
   )
 }

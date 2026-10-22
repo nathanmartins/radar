@@ -36,6 +36,7 @@ import {
 import type { ServicePortRenderProps } from '@skyhook-io/k8s-ui/components/resources/renderers/ServiceRenderer'
 import { isJobSetV1Alpha2 } from '@skyhook-io/k8s-ui/components/resources/resource-utils-jobset-lws'
 import type { SelectedResource, ResourceRef, Relationships, ResourceWithRelationships } from '../../types'
+import { CronJobSchedulingContext, CronJobSchedulingDetails } from './CronJobSchedulingEvidence'
 import { useHistoryPaging } from './historyPaging'
 import { findInheritedGitOpsLookupRef, useResolvedGitOpsOwner } from '../../hooks/useResolvedGitOpsOwner'
 import { useGitOpsWriteGuard } from '../../hooks/useGitOpsWriteGuard'
@@ -100,7 +101,7 @@ import { WorkloadCostTab } from '../cost/WorkloadCostTab'
 import { isOpenCostWorkloadKind } from '../cost/kinds'
 import { isRadarFeatureUnsupported } from '../../api/radarFeatures'
 import { useTrafficAvailable } from '../../api/traffic'
-import { useResourceAudit, useResourceIssues, useTrace, fetchTraceWithProbes, fetchInClusterCapability, runInClusterMerged } from '../../api/client'
+import { useResourceAudit, useResourceIssues, useSubjectIssues, useRadarFeature, useTrace, fetchTraceWithProbes, fetchInClusterCapability, runInClusterMerged } from '../../api/client'
 import { AuditAlerts, getRadarUpgradeRequirement, ResourceIssuesSection, ReachabilityView, TraceSummary, InClusterConsentDialog, traceFingerprint, staticPollUnreliable, summarizeInClusterTests, type Trace as NetworkTrace, type InClusterCapability, inClusterConsentGiven, consentRequestRows } from '@skyhook-io/k8s-ui'
 import { WorkloadLogsViewer } from '../logs/WorkloadLogsViewer'
 import { ScheduledWorkloadLogsViewer } from '../logs/ScheduledWorkloadLogsViewer'
@@ -571,6 +572,7 @@ export function WorkloadView({
     refetchActive: true,
     clusterScoped: batchKind === 'ClusterWorkflowTemplate',
     namespaces: viewNamespaces,
+    ownerUID: batchKind === 'CronJob' ? resource?.metadata?.uid : undefined,
   })
   const relatedTimelineEvents = useMemo(
     () => batchKind === 'JobSet' ? [] : workloadRunTimelineEvents(batchRunsQuery.data?.runs ?? []),
@@ -806,7 +808,14 @@ export function WorkloadView({
   // would flip the query key when the manifest arrives, drop liveIssues, and flash
   // the renderer banners. The backend canonicalizes a plural kind via discovery,
   // so using the normalized API kind resolves direct links and app navigation alike.
-  const { data: liveIssues, isPending: issuesPending } = useResourceIssues(apiKind, rest.group, namespace, name)
+  const isCronJob = apiKind === 'cronjobs' && (!effectiveGroup || effectiveGroup === 'batch')
+  const { support: coverageSupport } = useRadarFeature('resourceIssueCoverage')
+  const useCronJobCoverage = isCronJob && coverageSupport === 'supported'
+  const ordinaryIssues = useResourceIssues(apiKind, rest.group, namespace, name, !useCronJobCoverage)
+  const cronJobIssues = useSubjectIssues(useCronJobCoverage ? { kind: 'CronJob', group: 'batch', namespace, name, uid: resource?.metadata?.uid } : null, useCronJobCoverage && Boolean(resource))
+  const liveIssues = useCronJobCoverage ? cronJobIssues.data?.issues : ordinaryIssues.data
+  const issuesPending = useCronJobCoverage ? cronJobIssues.isPending : ordinaryIssues.isPending
+  const schedulingEvidence = cronJobIssues.data?.scheduling_report?.uid === resource?.metadata?.uid ? cronJobIssues.data?.scheduling_report : undefined
   const { data: auditFindings } = useResourceAudit(apiKind, namespace, name, effectiveGroup)
   const hasOperationalIssues = Boolean(liveIssues?.length)
   const {
@@ -1193,7 +1202,7 @@ export function WorkloadView({
           />
         )}
         {...resourceDetailSlots({ kind: apiKind, group: resource?.apiVersion ? resourceGroup : effectiveGroup, namespace, name }, rest.extraTabs)}
-        renderExpandedOverview={({ kind: k, apiKind, namespace: ns, name: n, resource: res }) =>
+        renderExpandedOverview={({ kind: k, apiKind, namespace: ns, name: n, resource: res, leadContent }) =>
           supportsBatchExecution(k, apiKind, effectiveGroup, res?.apiVersion) &&
           res ? (
             <BatchExecutionFullscreen
@@ -1203,6 +1212,7 @@ export function WorkloadView({
               name={n}
               resource={res}
               selectedRunKey={selectedRunKey}
+              leadContent={leadContent}
               canViewLogs={baseActionsBarProps.canViewLogs}
               onSelectRun={handleSelectedRunChange}
               onSwitchToLogs={() => handleTabChange('logs')}
@@ -1287,8 +1297,11 @@ export function WorkloadView({
           )
         }}
         renderOverviewLead={() => (
+          <div className="flex flex-col gap-4">
+          <CronJobSchedulingContext evidence={schedulingEvidence} onViewTimeline={() => handleTabChange('timeline')} />
           <ResourceIssuesSection
             issues={liveIssues}
+            renderDetailSection={schedulingEvidence?.state === 'reported' ? ({ issue }) => issue.kind === 'CronJob' && issue.reason === schedulingEvidence.reason ? <CronJobSchedulingDetails evidence={schedulingEvidence} onViewTimeline={() => handleTabChange('timeline')} /> : null : undefined}
             compact={!expanded}
             subjectResource={{ kind: apiKind, namespace, name, group: rest.group }}
             onResourceClick={
@@ -1303,7 +1316,9 @@ export function WorkloadView({
                 : undefined
             }
           />
+          </div>
         )}
+        hasOverviewLead={hasOperationalIssues || Boolean(schedulingEvidence && schedulingEvidence.state !== 'reported')}
         hasOperationalIssues={hasOperationalIssues}
         operationalIssuesPending={issuesPending}
         onOpenGitOpsResource={gitopsOwnerObject ? handleOpenGitOpsResource : undefined}

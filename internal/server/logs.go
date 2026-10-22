@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,13 +24,18 @@ import (
 )
 
 type podLogStreamHandle struct {
-	uid    types.UID
-	cancel context.CancelFunc
+	uid        types.UID
+	cancel     context.CancelFunc
+	follow     int
+	generation int
+	opened     atomic.Bool
 }
 
-type podLogSourceFailure struct {
-	key string
-	uid types.UID
+type podLogSourceResult struct {
+	key    string
+	uid    types.UID
+	follow int
+	err    error
 }
 
 func stopPodLogStreams(active *sync.Map, cursors map[string]*podlogs.StreamCursor, podName string) {
@@ -240,10 +246,10 @@ func (s *Server) handlePodLogsStream(w http.ResponseWriter, r *http.Request) {
 			line, err := reader.ReadString('\n')
 			// Checked before the EOF branch: the notice is the whole body with
 			// no trailing newline, so it arrives together with EOF.
-			if k8score.IsLogsUnavailableNotice(line) {
+			if followErr := k8score.LogFollowError(line); followErr != nil {
 				// Coded like the snapshot answer, so the viewer shows it as an
 				// answer about the pod rather than a Radar failure.
-				sendSSEEvent(w, flusher, "error", map[string]string{"error": k8score.ErrLogsUnavailable.Error(), "error_code": "logs_unavailable"})
+				sendSSEEvent(w, flusher, "error", map[string]string{"error": followErr.Error(), "error_code": "logs_unavailable"})
 				return
 			}
 

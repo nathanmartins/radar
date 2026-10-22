@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useDeferredValue, useRef, useContext, useId } from 'react'
 import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { Badge } from '../ui/Badge'
 import { PaneLoader } from '../ui/PaneLoader'
 import { RestrictedState } from '../ui/RestrictedState'
 import { FetchResult } from '../ui/FetchResult'
@@ -163,6 +164,8 @@ import { isRolloutActivityVisible } from '../../utils/workload-rollout'
 import { FreshnessControl, type FreshnessConnection } from '../ui/FreshnessControl'
 import { Tooltip } from '../ui/Tooltip'
 import { AuditBadgeTooltip, type AuditBadgeMessage } from '../audit/AuditBadgeTooltip'
+import type { Issue } from '../issues/types'
+import { issueTitle } from '../issues/severity'
 import { SEVERITY_TEXT_CLASS } from '../checks/severity'
 // CRD-specific cell components (extracted)
 import { GitRepositoryCell, OCIRepositoryCell, HelmRepositoryCell, KustomizationCell, FluxHelmReleaseCell, FluxAlertCell } from './renderers/flux-cells'
@@ -3347,6 +3350,9 @@ interface ResourcesViewData {
   // cluster-scoped kind. An ExternalSecret names a store; only the store
   // knows which backend it reads from.
   storeProviders?: Record<string, string>
+  /** Current CronJob Issues keyed by "namespace/name", supplied by the host. */
+  operationalIssuesIncomplete?: boolean
+  operationalIssues?: Record<string, Issue>
   /** Cluster Audit findings keyed by "namespace/name". Raw compatibility
    *  counts render danger as High and warning as Medium. */
   auditBadges?: Record<string, { danger: number; warning: number; messages?: AuditBadgeMessage[] }>
@@ -3411,6 +3417,9 @@ interface ResourcesViewProps {
   // cluster-scoped kind. An ExternalSecret names a store; only the store
   // knows which backend it reads from.
   storeProviders?: Record<string, string>
+  /** Current CronJob Issues keyed by "namespace/name", supplied by the host. */
+  operationalIssuesIncomplete?: boolean
+  operationalIssues?: Record<string, Issue>
   /** Cluster Audit findings keyed by "namespace/name". Raw compatibility
    *  counts render danger as High and warning as Medium. */
   auditBadges?: Record<string, { danger: number; warning: number; messages?: AuditBadgeMessage[] }>
@@ -3697,6 +3706,8 @@ export function ResourcesView({
   certExpiryError,
   storeProviders,
   auditBadges,
+  operationalIssues,
+  operationalIssuesIncomplete,
   pinned = [],
   togglePin = () => {},
   isPinned = () => false,
@@ -5301,6 +5312,15 @@ export function ResourcesView({
     saveSavedSort(selectedKind.name, selectedKind.group, newColumn && newDirection ? { column: newColumn, direction: newDirection } : null)
   }, [sortColumn, sortDirection, canSortBy, selectedKind.name, selectedKind.group])
 
+  const getDisplayFilterValue = useCallback((resource: { metadata?: { namespace?: string; name?: string } }, column: string, kind: string): string => {
+    if (column === 'status' && selectedKind.group === 'batch' && kind === 'cronjobs') {
+      const issue = operationalIssues?.[`${resource.metadata?.namespace ?? ''}/${resource.metadata?.name ?? ''}`]
+      if (issue) return issueTitle(issue)
+      if (operationalIssuesIncomplete) return 'Unknown'
+    }
+    return getCellFilterValue(resource, column, kind)
+  }, [operationalIssues, operationalIssuesIncomplete, selectedKind.group])
+
   // Get sortable value from a resource for a given column
   const getSortValue = useCallback((resource: any, column: string, kind?: string): string | number => {
     const meta = resource.metadata || {}
@@ -5329,7 +5349,7 @@ export function ResourcesView({
         if (hasCuratedColumns(selectedKind.name, selectedKind.group) && status.phase) {
           return status.phase
         }
-        return getCellFilterValue(resource, 'status', kindLower)
+        return getDisplayFilterValue(resource, 'status', kindLower)
       case 'servers':
         // Numeric so 10 does not sort before 9.
         if (kindLower === 'istiogateways') return getIstioGatewayServerCount(resource)
@@ -5419,7 +5439,7 @@ export function ResourcesView({
       default:
         return ''
     }
-  }, [metricsLookup, selectedKind.name, selectedKind.group])
+  }, [metricsLookup, selectedKind.name, selectedKind.group, getDisplayFilterValue])
 
   // Helper to check if a pod matches problem filters
   const podMatchesProblemFilter = useCallback((pod: any, filters: string[]): boolean => {
@@ -5476,7 +5496,7 @@ export function ResourcesView({
       result = result.filter((r: any) =>
         activeColFilters.every(([col, vals]) => {
           const extra = extraColumnsByKey.get(col)
-          const cellVal = extra?.getFilterValue ? extra.getFilterValue(r) : getCellFilterValue(r, col, cellFilterKind)
+          const cellVal = extra?.getFilterValue ? extra.getFilterValue(r) : getDisplayFilterValue(r, col, cellFilterKind)
           const match = vals.includes(cellVal)
           return columnFilterExcludes[col] ? !match : match
         })
@@ -5630,7 +5650,7 @@ export function ResourcesView({
     }
 
     return result
-  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, extraColumnsByKey, podMatchesProblemFilter])
+  }, [tableActive, resources, deferredSearchTerm, regexMode, searchRegex, columnFilters, columnFilterExcludes, problemFilters, showInactiveReplicaSets, labelSelector, ownerKind, ownerName, selectedKind.name, effectiveSortColumn, sortDirection, getSortValue, getDisplayFilterValue, extraColumnsByKey, podMatchesProblemFilter])
 
   // For nodes table: compute the majority minor version so outliers can be highlighted
   const majorityNodeMinorVersion = useMemo(() => {
@@ -5865,7 +5885,7 @@ export function ResourcesView({
       // Count distinct values for this column
       const valueCounts: Record<string, number> = {}
       for (const r of resources) {
-        const val = extra?.getFilterValue ? extra.getFilterValue(r) : getCellFilterValue(r, col.key, cellFilterKind)
+        const val = extra?.getFilterValue ? extra.getFilterValue(r) : getDisplayFilterValue(r, col.key, cellFilterKind)
         if (val) {
           valueCounts[val] = (valueCounts[val] || 0) + 1
         }
@@ -5948,7 +5968,7 @@ export function ResourcesView({
 
     if (filterableColumns.length === 0 && !problems && labelValues.length === 0) return null
     return { columns: filterableColumns, problems, labels: labelValues }
-  }, [tableActive, resources, selectedKind.name, selectedKind.group, allColumns])
+  }, [tableActive, resources, selectedKind.name, selectedKind.group, allColumns, getDisplayFilterValue])
 
   // Map filterable columns by key for O(1) lookup in header rendering
   const filterableColumnMap = useMemo(() => {
@@ -6023,9 +6043,11 @@ export function ResourcesView({
     certExpiry,
     certExpiryError,
     auditBadges,
+    operationalIssues,
+    operationalIssuesIncomplete,
     onOpenLogs,
     onOpenWorkloadLogs,
-  }), [onNavigate, certExpiry, certExpiryError, auditBadges, onOpenLogs, onOpenWorkloadLogs])
+  }), [onNavigate, certExpiry, certExpiryError, auditBadges, operationalIssues, operationalIssuesIncomplete, onOpenLogs, onOpenWorkloadLogs])
 
   return (
     <ResourcesViewDataContext.Provider value={resourcesViewDataContextValue}>
@@ -8617,6 +8639,7 @@ function JobCell({ resource, column }: { resource: any; column: string }) {
 }
 
 function CronJobCell({ resource, column }: { resource: any; column: string }) {
+  const { operationalIssues, operationalIssuesIncomplete } = useContext(ResourcesViewDataContext)
   switch (column) {
     case 'schedule': {
       const { cron, readable } = getCronJobSchedule(resource)
@@ -8628,6 +8651,13 @@ function CronJobCell({ resource, column }: { resource: any; column: string }) {
       )
     }
     case 'status': {
+      const issue = operationalIssues?.[`${resource.metadata?.namespace ?? ''}/${resource.metadata?.name ?? ''}`]
+      if (issue) {
+        return <Tooltip content={issue.message}><Badge severity={issue.severity === 'critical' ? 'error' : 'warning'}>{issueTitle(issue)}</Badge></Tooltip>
+      }
+      if (operationalIssuesIncomplete) {
+        return <Tooltip content="The issue list is incomplete. This CronJob's status could not be checked."><Badge severity="neutral">Unknown</Badge></Tooltip>
+      }
       const status = getCronJobStatus(resource)
       return (
         <span className={clsx('badge', status.color)}>

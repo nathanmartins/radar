@@ -1455,7 +1455,7 @@ func secretsToObjects(secrets []*corev1.Secret) []runtime.Object {
 }
 
 func TestListReleasesAcrossNamespacesEmptySerializesAsArray(t *testing.T) {
-	releases, err := (&Client{}).ListReleasesAcrossNamespaces(context.Background(), []string{}, "", nil)
+	releases, err := (&Client{}).ListReleasesAcrossNamespaces(context.Background(), []string{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1706,7 +1706,7 @@ func TestCompareVersions(t *testing.T) {
 func TestListManifestResourcesAcrossNamespacesHonorsCancellationBetweenNamespaces(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	resources, unavailable, parseErrors, err := (&Client{}).ListManifestResourcesAcrossNamespaces(ctx, []string{"default"}, "", nil)
+	resources, unavailable, parseErrors, err := (&Client{}).ListManifestResourcesAcrossNamespaces(ctx, []string{"default"}, nil)
 	if !errors.Is(err, context.Canceled) || len(resources) != 0 || !equalStringSlices(unavailable, []string{"default"}) || parseErrors != 0 {
 		t.Fatalf("canceled collection = resources=%v unavailable=%v parseErrors=%d err=%v", resources, unavailable, parseErrors, err)
 	}

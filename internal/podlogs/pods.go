@@ -67,6 +67,18 @@ func ContainerRestartCount(pod *corev1.Pod, name string) int32 {
 	return 0
 }
 
+// ContainerTerminated reports whether the named container's current run ended.
+func ContainerTerminated(pod *corev1.Pod, name string) bool {
+	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses, pod.Status.EphemeralContainerStatuses} {
+		for _, status := range statuses {
+			if status.Name == name {
+				return status.State.Terminated != nil
+			}
+		}
+	}
+	return false
+}
+
 func BuildPodInfo(pod *corev1.Pod, now time.Time) PodInfo {
 	containers := make([]string, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	containerStatuses := make([]ContainerInfo, 0, len(pod.Status.InitContainerStatuses)+len(pod.Status.ContainerStatuses))

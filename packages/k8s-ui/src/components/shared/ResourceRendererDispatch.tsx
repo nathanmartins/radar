@@ -314,6 +314,7 @@ import type { ScalerDiagnosis } from '../resources/renderers/WorkloadRenderer'
  * When an override is not provided, the base (shared) renderer is used.
  */
 export interface RendererOverrides {
+  FluxHelmReleaseRenderer?: React.ComponentType<React.ComponentProps<typeof FluxHelmReleaseRenderer>>
   JobRenderer?: React.ComponentType<{ data: any; onNavigate?: (ref: ResourceRef) => void }>
   JobSetRenderer?: React.ComponentType<{ data: any; onNavigate?: (ref: ResourceRef) => void }>
   RayJobRenderer?: React.ComponentType<{ data: any; onNavigate?: (ref: ResourceRef) => void }>
@@ -755,6 +756,7 @@ export function ResourceRendererDispatch({
   const isKnownKind = KNOWN_KINDS.has(kind) || isCrossplaneMR || isCrossplaneClaim || isCrossplaneXR
 
   const JobComp = rendererOverrides?.JobRenderer ?? JobRenderer
+  const FluxHelmReleaseComp = rendererOverrides?.FluxHelmReleaseRenderer ?? FluxHelmReleaseRenderer
   const JobSetComp = rendererOverrides?.JobSetRenderer ?? JobSetRenderer
   const RayJobComp = rendererOverrides?.RayJobRenderer ?? RayJobRenderer
   const RayClusterComp = rendererOverrides?.RayClusterRenderer ?? RayClusterRenderer
@@ -879,7 +881,7 @@ export function ResourceRendererDispatch({
         {kind === 'ocirepositories' && <OCIRepositoryRenderer data={data} />}
         {kind === 'helmrepositories' && <HelmRepositoryRenderer data={data} />}
         {kind === 'kustomizations' && <KustomizationRenderer data={data} onNavigate={onNavigate} />}
-        {kind === 'helmreleases' && <FluxHelmReleaseRenderer data={data} onNavigate={onNavigate} />}
+        {kind === 'helmreleases' && <FluxHelmReleaseComp data={data} onNavigate={onNavigate} />}
         {kind === 'alerts' && <AlertRenderer data={data} />}
         {kind === 'applications' && <ArgoApplicationRenderer data={data} />}
         {kind === 'nodepools' && <KarpenterNodePoolComp data={data} onNavigate={onNavigate} />}

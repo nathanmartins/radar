@@ -786,12 +786,14 @@ export interface UncheckedSource {
   namespaces?: string[];
 }
 
-export function useIssues(namespaces: string[] = [], enabled = true) {
-  const params =
-    namespaces.length > 0 ? `?namespaces=${namespaces.join(",")}` : "";
+export function useIssues(namespaces: string[] = [], enabled = true, kind?: string) {
+  const params = new URLSearchParams();
+  if (namespaces.length) params.set('namespaces', namespaces.join(','));
+  if (kind) { params.set('kind', kind); params.set('limit', '1000'); }
+  const query = params.toString();
   return useQuery<IssuesResponse>({
-    queryKey: ["issues", namespaces],
-    queryFn: () => fetchJSON(`/issues${params}`),
+    queryKey: kind ? ["issues", namespaces, kind] : ["issues", namespaces],
+    queryFn: () => fetchJSON(`/issues${query ? `?${query}` : ''}`),
     staleTime: 30000,
     refetchInterval: ISSUES_REFRESH_INTERVAL_MS,
     enabled,
@@ -849,7 +851,18 @@ export function useResourceIssues(
 // The Issues page narrowed to one subject: the same per-resource lookup with
 // ?coverage=1, which also says whether Radar reads the subject's kind and what
 // the caller's RBAC withheld. Polls like the page list.
+export interface CronJobSchedulingEvidence {
+  uid: string;
+  state: 'reported' | 'configuration_changed' | 'history_incomplete';
+  reason: string;
+  message: string;
+  last_reported_at: string;
+  configuration_changed_at?: string;
+  history_incomplete?: boolean;
+}
+
 export interface SubjectIssuesResponse {
+  scheduling_report?: CronJobSchedulingEvidence;
   issues: Issue[];
   coverage: "ok" | "syncing" | "notWatched" | "unknownKind";
   withheld?: { issues: number };
@@ -857,7 +870,7 @@ export interface SubjectIssuesResponse {
 }
 
 export function useSubjectIssues(
-  subject: { kind: string; group: string; namespace: string; name: string } | null,
+  subject: { kind: string; group: string; namespace: string; name: string; uid?: string } | null,
   enabled: boolean,
 ) {
   const capabilities = useCapabilities();
@@ -866,7 +879,7 @@ export function useSubjectIssues(
   const params = new URLSearchParams({ coverage: "1" });
   if (subject?.group) params.set("group", subject.group);
   return useQuery<SubjectIssuesResponse>({
-    queryKey: ["issues", "subject", subject?.kind ?? "", subject?.group ?? "", subject?.namespace ?? "", subject?.name ?? "", support, ...gatedKey],
+    queryKey: ["issues", "subject", subject?.kind ?? "", subject?.group ?? "", subject?.namespace ?? "", subject?.name ?? "", subject?.uid ?? "", support, ...gatedKey],
     queryFn: () => {
       if (!capabilities.data && capabilities.error) throw capabilities.error;
       return guard(() => fetchJSON<SubjectIssuesResponse>(`/issues/resource/${encodeURIComponent(subject!.kind)}/${pathNs}/${encodeURIComponent(subject!.name)}?${params}`));
@@ -2827,6 +2840,32 @@ export function useResource<T>(
     certificateInfo: query.data?.certificateInfo,
     hpaDiagnosis: query.data?.hpaDiagnosis,
   };
+}
+
+// Availability checks return headers only, without downloading Secret values.
+export async function fetchResourceAvailability(
+  kind: string,
+  namespace: string,
+  name: string,
+): Promise<"present" | "missing" | "unchecked"> {
+  const response = await apiFetch(`${getApiBase()}/resources/${encodeURIComponent(kind)}/${encodeURIComponent(namespace || "_")}/${encodeURIComponent(name)}`, { method: "HEAD" });
+  const resourceLookup = response.headers.get("X-Radar-Resource-Read") === "true";
+  if (resourceLookup && response.ok) return "present";
+  if (resourceLookup && response.status === 404) return "missing";
+  // Older Radar versions do not serve HEAD lookups. Keep their existing
+  // navigation without claiming that availability was verified.
+  if (response.status === 405 || response.ok) return "unchecked";
+  throw new ApiError(httpStatusMessage(response.status, response.statusText), response.status);
+}
+
+export function useResourceAvailability(kind: string, namespace: string, name: string) {
+  return useQuery({
+    queryKey: ["resource", kind, namespace, name, undefined, "availability"],
+    queryFn: () => fetchResourceAvailability(kind, namespace, name),
+    enabled: Boolean(kind && name),
+    refetchInterval: GONE_RECHECK_MS,
+    retry: (failureCount, error) => !isForbiddenError(error) && failureCount < 1,
+  });
 }
 
 // Hook that returns full response with relationships explicitly
@@ -7499,7 +7538,7 @@ export function useWorkloadRuns(
   namespace: string,
   name: string,
   enabled = true,
-  options?: { refetchActive?: boolean; clusterScoped?: boolean; namespaces?: string[]; role?: string; search?: string; state?: string; selected?: string },
+  options?: { refetchActive?: boolean; clusterScoped?: boolean; namespaces?: string[]; role?: string; search?: string; state?: string; selected?: string; ownerUID?: string },
 ) {
   const clusterScoped = options?.clusterScoped ?? false;
   const ns = clusterScoped ? "_" : namespace;
@@ -7513,11 +7552,11 @@ export function useWorkloadRuns(
   const queryString = params.toString();
 
   return useQuery<WorkloadRunsResponse>({
-    queryKey: ["workload-runs", kind, namespace, name, clusterScoped, viewNamespaces, options?.role ?? '', options?.search ?? '', options?.state ?? '', options?.selected ?? ''],
+    queryKey: ["workload-runs", kind, namespace, name, clusterScoped, viewNamespaces, options?.role ?? '', options?.search ?? '', options?.state ?? '', options?.selected ?? '', options?.ownerUID ?? ''],
     placeholderData: (previous, query) => {
       if (previous?.collection !== 'members') return undefined
       const identity = ["workload-runs", kind, namespace, name, clusterScoped, viewNamespaces, options?.role ?? '', options?.search ?? '', options?.state ?? '']
-      return identity.every((value, index) => query?.queryKey[index] === value) ? previous : undefined
+      return identity.every((value, index) => query?.queryKey[index] === value) && query?.queryKey[10] === (options?.ownerUID ?? '') ? previous : undefined
     },
     queryFn: () =>
       fetchJSON(

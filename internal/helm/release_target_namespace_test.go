@@ -119,7 +119,7 @@ func targetNamespaceActionConfig(t *testing.T) (*action.Configuration, *[]string
 		writeTestJSON(t, w, obj)
 	}))
 	t.Cleanup(srv.Close)
-	getter := newRESTConfigGetter(&rest.Config{Host: srv.URL}, "store", "", nil)
+	getter := newRESTConfigGetter(&rest.Config{Host: srv.URL}, "store", nil)
 	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{{Version: "v1"}})
 	mapper.Add(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}, meta.RESTScopeNamespace)
 	getter.mapper = mapper

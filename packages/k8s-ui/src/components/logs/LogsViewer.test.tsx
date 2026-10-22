@@ -29,6 +29,23 @@ class ApiError extends Error {
 
 const NO_EARLIER_RUN = 'This container has not restarted, so there is no earlier run to show.'
 
+it('keeps received logs visible and reports a node failure until streaming is restarted', async () => {
+  const fetchLogs = vi.fn(async () => ({ app: '' }))
+  await renderViewer(fetchLogs, true)
+  await act(async () => FakeEventSource.last?.emit('connected', {}))
+  await act(async () => FakeEventSource.last?.emit('log', { timestamp: '2026-10-20T10:00:00Z', content: 'before failure', container: 'app' }))
+  // The buffer batches streamed records before rendering them.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)) })
+  await act(async () => FakeEventSource.last?.emit('error', { error: 'Kubernetes did not return this container\'s logs', error_code: 'logs_unavailable' }))
+  expect(element.querySelector('[role="alert"]')?.textContent).toContain('Kubernetes did not return')
+  expect(element.textContent).toContain('Previously loaded logs remain below.')
+  expect(element.textContent).toContain('OTHER 1')
+  expect(FakeEventSource.last?.closed).toBe(true)
+  await act(async () => button('Stream').click())
+  await act(async () => FakeEventSource.last?.emit('connected', {}))
+  expect(element.querySelector('[role="alert"]')).toBeNull()
+})
+
 let root: Root
 let element: HTMLDivElement
 beforeEach(() => {
@@ -43,14 +60,14 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-async function renderViewer(fetchLogs: (params: LogsFetchParams) => Promise<{ [container: string]: string }>, autoStream = false) {
+async function renderViewer(fetchLogs: (params: LogsFetchParams) => Promise<{ [container: string]: string }>, autoStream = false, containers = ['app']) {
   await act(async () =>
     root.render(
       <ToastProvider>
         <LogsViewer
           namespace="default"
           podName="web-0"
-          containers={['app']}
+          containers={containers}
           fetchLogs={fetchLogs}
           createStream={() => new EventSource('/stream')}
           autoStream={autoStream}
@@ -65,6 +82,67 @@ function previousCheckbox(): HTMLInputElement {
   if (!box) throw new Error('Previous checkbox not rendered')
   return box
 }
+
+function refreshButton(): HTMLButtonElement {
+  const found = element.querySelector<HTMLButtonElement>('button[aria-label="Refresh logs"]')
+  if (!found) throw new Error('Refresh button not rendered')
+  return found
+}
+
+it('keeps records after a failed Refresh of the same selection and replaces them on success', async () => {
+  const fetchLogs = vi.fn(async () => ({ app: '2026-10-20T10:00:00Z retained record' }))
+  await renderViewer(fetchLogs)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    fetchLogs.mockRejectedValueOnce(new Error('snapshot failed'))
+    await act(async () => refreshButton().click())
+    expect(element.querySelector('[role="alert"]')?.textContent).toContain('snapshot failed')
+    expect(element.textContent).toContain('OTHER 1')
+  }
+
+  fetchLogs.mockResolvedValueOnce({ app: '' })
+  await act(async () => refreshButton().click())
+  expect(element.querySelector('[role="alert"]')).toBeNull()
+  expect(element.textContent).not.toContain('OTHER 1')
+  expect(element.textContent).not.toContain('snapshot failed')
+})
+
+it('keeps streamed records when Refresh fails after the stream stops', async () => {
+  const fetchLogs = vi.fn(async () => ({ app: '' }))
+  await renderViewer(fetchLogs, true)
+  await act(async () => FakeEventSource.last?.emit('connected', {}))
+  await act(async () => FakeEventSource.last?.emit('log', { timestamp: '2026-10-20T10:00:00Z', content: 'retained record', container: 'app' }))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)) })
+  await act(async () => button('Stop').click())
+  fetchLogs.mockRejectedValueOnce(new Error('snapshot failed'))
+
+  await act(async () => refreshButton().click())
+
+  expect(element.querySelector('[role="alert"]')?.textContent).toContain('snapshot failed')
+  expect(element.textContent).toContain('OTHER 1')
+})
+
+it.each(['container', 'previous', 'range'])('clears prior records when a new %s snapshot fails', async selection => {
+  const fetchLogs = vi.fn(async () => ({ app: '2026-10-20T10:00:00Z old selection' }))
+  await renderViewer(fetchLogs, false, ['app', 'sidecar'])
+  expect(element.textContent).toContain('OTHER 1')
+  fetchLogs.mockRejectedValueOnce(new Error('snapshot failed'))
+
+  await act(async () => {
+    if (selection === 'previous') {
+      previousCheckbox().click()
+      return
+    }
+    const select = element.querySelectorAll('select')[selection === 'container' ? 0 : 1]
+    if (!select) throw new Error('selection control not rendered')
+    select.value = selection === 'container' ? 'sidecar' : '1000'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+
+  expect(element.textContent).toContain('snapshot failed')
+  expect(element.textContent).not.toContain('OTHER 1')
+  expect(element.textContent).not.toContain('Previously loaded logs remain below.')
+  expect(messageClass('snapshot failed')).toMatch(/text-red/)
+})
 
 function button(label: string): HTMLButtonElement {
   const found = Array.from(element.querySelectorAll('button')).find(b => b.textContent?.trim() === label)

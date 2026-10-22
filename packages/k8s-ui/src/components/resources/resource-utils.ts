@@ -1327,7 +1327,7 @@ export function getCronJobStatus(cj: any): StatusBadge {
   if (activeJobs > 0) {
     return { text: `Active (${activeJobs})`, color: healthColors.neutral, level: 'neutral' }
   }
-  return { text: 'Scheduled', color: healthColors.healthy, level: 'healthy' }
+  return { text: 'Enabled', color: healthColors.neutral, level: 'neutral' }
 }
 
 export function getCronJobSchedule(cj: any): { cron: string; readable: string } {

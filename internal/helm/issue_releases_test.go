@@ -325,7 +325,7 @@ func TestIssueReleasesReadOnlyFailedOrPendingReleasesInFull(t *testing.T) {
 	defer server.Close()
 
 	client := &Client{restConfig: &rest.Config{Host: server.URL}}
-	rows, err := client.ListIssueReleasesAcrossNamespaces(context.Background(), nil, "", nil)
+	rows, err := client.ListIssueReleasesAcrossNamespaces(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

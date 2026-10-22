@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	pkgauth "github.com/skyhook-io/radar/pkg/auth"
 	"log"
 	"net"
 	"net/url"
@@ -560,8 +561,8 @@ func (c *Client) SourceStatus(namespace, name string) (*ChartSourceStatus, error
 	return c.sourceStatusWith(cfg, name)
 }
 
-func (c *Client) SourceStatusAsUser(namespace, name, username string, groups []string) (*ChartSourceStatus, error) {
-	cfg, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) SourceStatusAsUser(namespace, name string, user *pkgauth.User) (*ChartSourceStatus, error) {
+	cfg, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return nil, err
 	}
@@ -661,8 +662,8 @@ func (c *Client) SetSource(namespace, name string, selected ChartSourceCandidate
 	return c.setSourceWith(cfg, name, selected)
 }
 
-func (c *Client) SetSourceAsUser(namespace, name string, selected ChartSourceCandidate, username string, groups []string) error {
-	cfg, err := c.getActionConfigForUser(namespace, username, groups)
+func (c *Client) SetSourceAsUser(namespace, name string, selected ChartSourceCandidate, user *pkgauth.User) error {
+	cfg, err := c.getActionConfigForUser(namespace, user)
 	if err != nil {
 		return err
 	}

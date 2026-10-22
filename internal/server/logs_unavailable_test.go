@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +78,71 @@ func useLogsUnavailableServer(t *testing.T) {
 	client := logAPIServer(t, http.StatusOK, "", "unable to retrieve container logs for containerd://6e2396b58f81ea5e")
 	previous := k8s.SetTestClient(client)
 	t.Cleanup(func() { k8s.SetTestClient(previous) })
+}
+
+func TestPodLogsStream_NodeWatcherFailureAfterOutput(t *testing.T) {
+	for _, ending := range []string{"", "\n"} {
+		t.Run("ending="+ending, func(t *testing.T) {
+			client := logAPIServer(t, http.StatusOK, "text/plain", "2026-10-20T10:00:00Z before\nfailed to create fsnotify watcher: too many open files"+ending)
+			previous := k8s.SetTestClient(client)
+			defer k8s.SetTestClient(previous)
+			stream := readSSEFor(t, "/api/pods/default/nginx-abc-xyz/logs/stream?container=nginx", 5*time.Second)
+			if strings.Count(stream, `"content":"before"`) != 1 || strings.Count(stream, "event: log") != 1 {
+				t.Fatalf("expected only the application record: %s", stream)
+			}
+			if !strings.Contains(stream, `"error_code":"logs_unavailable"`) || strings.Contains(stream, "event: end") {
+				t.Fatalf("expected cluster failure instead of clean end: %s", stream)
+			}
+		})
+	}
+}
+
+func TestPodLogsStream_NodeWatcherFailureBeforeOutput(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, "failed to create fsnotify watcher: too many open files\n")
+	}))
+	t.Cleanup(api.Close)
+	client, err := kubernetes.NewForConfig(&rest.Config{Host: api.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := k8s.SetTestClient(client)
+	defer k8s.SetTestClient(previous)
+	stream := readSSEFor(t, "/api/pods/default/nginx-abc-xyz/logs/stream?container=nginx", 5*time.Second)
+	if !strings.Contains(stream, `"error_code":"logs_unavailable"`) {
+		t.Fatalf("expected cluster failure: %s", stream)
+	}
+}
+
+func TestWorkloadLogsStream_NodeWatcherFailureRecovers(t *testing.T) {
+	var requests atomic.Int32
+	var resumed atomic.Bool
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			_, _ = io.WriteString(w, "2026-10-20T10:00:00Z before\nfailed to create fsnotify watcher: too many open files\n")
+			return
+		}
+		resumed.Store(r.URL.Query().Get("sinceTime") == "2026-10-20T10:00:00Z")
+		_, _ = io.WriteString(w, "2026-10-20T10:00:00Z before\n2026-10-20T10:00:01Z recovered\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(api.Close)
+	client, err := kubernetes.NewForConfig(&rest.Config{Host: api.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := k8s.SetTestClient(client)
+	t.Cleanup(func() { k8s.SetTestClient(previous) })
+	stream := readSSEFor(t, "/api/workloads/deployments/default/nginx/logs/stream", 12*time.Second)
+	if !resumed.Load() || strings.Count(stream, `"content":"before"`) != 1 || strings.Count(stream, `"content":"recovered"`) != 1 {
+		t.Fatalf("expected resumed output without replay: %s", stream)
+	}
+	if strings.Contains(stream, "fsnotify") || !strings.Contains(stream, "1 source could not be read") || !strings.Contains(stream, `"notice":""`) {
+		t.Fatalf("expected source notice followed by recovery: %s", stream)
+	}
 }
 
 // The notice arrives together with EOF, so it has to be checked before the

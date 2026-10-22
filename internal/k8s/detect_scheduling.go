@@ -22,6 +22,7 @@ import (
 
 	capacitymodel "github.com/skyhook-io/radar/internal/capacity"
 	"github.com/skyhook-io/radar/pkg/gkedisk"
+	"github.com/skyhook-io/radar/pkg/k8score"
 	"github.com/skyhook-io/radar/pkg/karpenter"
 	"github.com/skyhook-io/radar/pkg/resourceid"
 	"github.com/skyhook-io/radar/pkg/scheduling"
@@ -952,17 +953,7 @@ func detectAdmissionFailures(cache *ResourceCache, namespace string) []Detection
 // an Event, falling back to EventTime (events API v1) when the legacy
 // First/LastTimestamp fields are unset.
 func eventLastTime(e *corev1.Event) time.Time {
-	// An event recorded through the events.k8s.io API carries its latest
-	// occurrence in Series.LastObservedTime; EventTime is the first one.
-	if e.Series != nil && !e.Series.LastObservedTime.Time.IsZero() {
-		if t := e.Series.LastObservedTime.Time; t.After(e.LastTimestamp.Time) {
-			return t
-		}
-	}
-	if !e.LastTimestamp.Time.IsZero() {
-		return e.LastTimestamp.Time
-	}
-	return e.EventTime.Time
+	return k8score.EventLastObservedTime(e)
 }
 
 func eventFirstTime(e *corev1.Event) time.Time {
