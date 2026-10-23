@@ -57,6 +57,12 @@ var (
 	// configuredBeylaJobSelector overrides the default `job` label matcher used
 	// to scope Beyla's Prometheus queries; empty means use the built-in default.
 	configuredBeylaJobSelector string
+	// configuredClusterMatchers is a PromQL label-matcher fragment (e.g.
+	// `cluster="production"`) that restricts Caretta and Beyla queries to this
+	// cluster's series when one backend stores several clusters. Like the
+	// workload metrics scope, it is an operator assertion bound to the current
+	// metrics connection, so changing that connection clears it.
+	configuredClusterMatchers string
 	// metricsConfigGen counts changes to the settings above. Metrics-based
 	// sources (Caretta, Beyla) detect through them, so a remembered detection
 	// made under other settings is stale.
@@ -88,6 +94,7 @@ func SetMetricsConfig(url string, h map[string]string) {
 	defer metricsConfigMu.Unlock()
 	configuredMetricsURL = url
 	configuredMetricsHeaders = copyMetricsHeaders(h)
+	configuredClusterMatchers = ""
 	metricsConfigGen++
 }
 
@@ -123,6 +130,35 @@ func BeylaJobSelector() string {
 	metricsConfigMu.RLock()
 	defer metricsConfigMu.RUnlock()
 	return configuredBeylaJobSelector
+}
+
+// SetClusterMatchers restricts Caretta and Beyla queries to series carrying
+// the given PromQL label matchers (e.g. `cluster="production"`), for a backend
+// shared by several clusters. Pass "" to read every series.
+func SetClusterMatchers(matchers string) {
+	metricsConfigMu.Lock()
+	defer metricsConfigMu.Unlock()
+	configuredClusterMatchers = matchers
+	metricsConfigGen++
+}
+
+func clusterMatchers() string {
+	metricsConfigMu.RLock()
+	defer metricsConfigMu.RUnlock()
+	return configuredClusterMatchers
+}
+
+// withClusterMatchers joins a selector fragment with the configured cluster
+// matchers; either side may be empty.
+func withClusterMatchers(selector string) string {
+	m := clusterMatchers()
+	switch {
+	case m == "":
+		return selector
+	case selector == "":
+		return m
+	}
+	return selector + "," + m
 }
 
 // metricsConfig returns the configured URL + headers under the read lock.
