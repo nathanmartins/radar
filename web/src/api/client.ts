@@ -853,6 +853,7 @@ export function useResourceIssues(
 // the caller's RBAC withheld. Polls like the page list.
 export interface CronJobSchedulingEvidence {
   uid: string;
+  event_id?: string;
   state: 'reported' | 'configuration_changed' | 'history_incomplete';
   reason: string;
   message: string;
@@ -7091,10 +7092,11 @@ export function useContexts() {
 
 // Where a remote Argo Application or Flux object (spec.kubeConfig) deploys:
 // the destination's host for display, and the kubeconfig contexts that reach it.
-export function useGitOpsDestination(kind: string, namespace: string, name: string, enabled: boolean) {
+export function useGitOpsDestination(kind: string, namespace: string, name: string, enabled: boolean, group?: string) {
+  const queryString = group ? `?group=${encodeURIComponent(group)}` : "";
   return useQuery<{ server: string; contexts: string[] }>({
-    queryKey: ["gitops-destination", kind, namespace, name],
-    queryFn: () => fetchJSON(`/gitops/destination/${encodeURIComponent(kind)}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`),
+    queryKey: ["gitops-destination", kind, namespace, name, group ?? ""],
+    queryFn: () => fetchJSON(`/gitops/destination/${encodeURIComponent(kind)}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${queryString}`),
     enabled,
     staleTime: 60000,
     retry: false,

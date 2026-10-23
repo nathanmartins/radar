@@ -1212,6 +1212,7 @@ export interface InstallChartRequest {
 
 // ArtifactHub chart with rich metadata
 export interface ArtifactHubChart {
+  official?: boolean
   packageId: string
   name: string
   version: string
@@ -1234,6 +1235,9 @@ export interface ArtifactHubChart {
 
 // ArtifactHub repository info
 export interface ArtifactHubRepository {
+  organizationDisplayName?: string
+  userAlias?: string
+  displayName?: string
   name: string
   url: string
   official?: boolean

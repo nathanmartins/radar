@@ -55,7 +55,7 @@ export const RELEASE_NOTES: ReleaseNotes[] = [
         icon: Search,
         title: 'Investigate CVEs across your cluster',
         description: 'Search Trivy findings by CVE, package or image. MCP agents can also inventory declared runtime versions that package scans may miss.',
-        leadDescription: 'With Trivy Operator installed, search by CVE, package, failed check ID or image to find affected workloads, installed and fixed package versions, and scans from older rollouts. MCP agents can also inventory runtime versions declared by running images and compare supported versions with a fixed release, covering runtimes that package scans may miss. Missing or unreadable declarations stay unknown; image metadata does not verify a fix.',
+        leadDescription: 'With Trivy Operator installed, search by CVE, package, failed check ID or image to find affected workloads and their installed and fixed package versions. MCP agents can also inventory runtime versions declared by running images and compare supported versions with a fixed release, covering runtimes that package scans may miss. Missing or unreadable declarations stay unknown; image metadata does not verify a fix.',
         importance: 8,
       },
       {

@@ -163,10 +163,12 @@ type ResourceSummaryContext struct {
 
 // ScannedRef names the object a security-scan report (Trivy Operator) is
 // about. A report can outlive the image it describes: a Deployment keeps old
-// ReplicaSets, and their reports, after a rollout. Replicas is a scanned
-// ReplicaSet's desired count, so zero marks findings about an image the
-// workload no longer runs. Missing means the scanned object isn't in Radar's
-// cache. Neither says the scanned image is what runs now.
+// ReplicaSets after a rollout, and Trivy Operator keeps their reports when
+// vulnerabilityScannerScanOnlyCurrentRevisions is false (its default, true,
+// deletes them). Replicas is a scanned ReplicaSet's desired count, so zero
+// usually marks findings about an image the workload no longer runs, though a
+// Deployment scaled to zero reads zero too. Missing means the scanned object
+// isn't in Radar's cache. Neither says the scanned image is what runs now.
 type ScannedRef struct {
 	Kind      string `json:"kind"`
 	Name      string `json:"name"`

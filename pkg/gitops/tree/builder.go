@@ -11,6 +11,7 @@ import (
 
 	"github.com/skyhook-io/radar/pkg/gitops"
 	"github.com/skyhook-io/radar/pkg/k8score"
+	"github.com/skyhook-io/radar/pkg/resourceid"
 	"github.com/skyhook-io/radar/pkg/topology"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -107,7 +108,10 @@ func (b *Builder) Build(ctx context.Context, kind, namespace, name, group string
 		root.SetKind(kind)
 	}
 
-	tool := detectTool(root, group, kind)
+	tool, err := detectTool(root, group)
+	if err != nil {
+		return nil, nil, err
+	}
 	managed := managedResources(root, tool)
 	// An Argo Application deploying to another cluster, or a Flux object with
 	// spec.kubeConfig, declares resources that live THERE. Matching them
@@ -596,11 +600,22 @@ func (b *Builder) canEnrich(ref ResourceRef) bool {
 	return false
 }
 
-func detectTool(root *unstructured.Unstructured, group, kind string) Tool {
-	if group == "argoproj.io" || strings.EqualFold(root.GetKind(), "Application") || strings.Contains(strings.ToLower(kind), "application") {
-		return ToolArgoCD
+// ErrNotGitOpsResource is returned by Build for a root that is not an Argo CD
+// or Flux object, such as a SIG Apps Application (app.k8s.io).
+var ErrNotGitOpsResource = errors.New("not a supported Argo CD or Flux resource")
+
+// detectTool decides the controller family from the root's own API group. The
+// requested group stands in only when the object carries no apiVersion.
+func detectTool(root *unstructured.Unstructured, requestedGroup string) (Tool, error) {
+	group := requestedGroup
+	if root.GetAPIVersion() != "" {
+		group = apiGroup(root)
 	}
-	return ToolFluxCD
+	if tool := gitops.ToolFor(group, root.GetKind()); tool != "" {
+		return Tool(tool), nil
+	}
+	ref := resourceid.NewRef(group, root.GetKind(), root.GetNamespace(), root.GetName())
+	return "", fmt.Errorf("%s is %w, so it has no GitOps view", ref, ErrNotGitOpsResource)
 }
 
 func managedResources(root *unstructured.Unstructured, tool Tool) []managedResource {

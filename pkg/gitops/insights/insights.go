@@ -389,8 +389,16 @@ type EventSummary struct {
 	ReportingComponent string `json:"reportingComponent,omitempty"`
 }
 
+// Build derives the detail-page insight for an Argo CD or Flux root. A root
+// that is neither gets only its identity: no tool, operations or history.
 func Build(root *unstructured.Unstructured, resourceTree *gitopstree.ResourceTree, resolver Resolver) Insight {
 	tool := detectTool(root)
+	if tool == "" {
+		if root == nil {
+			return Insight{}
+		}
+		return Insight{Summary: Summary{Kind: root.GetKind(), Namespace: root.GetNamespace(), Name: root.GetName()}}
+	}
 	out := Insight{
 		Summary:      buildSummary(root, tool),
 		Issues:       buildIssues(root, resourceTree, tool, resolver),
@@ -424,17 +432,16 @@ func pluralizeResourcesAre(n int) string {
 }
 
 func BuildHistory(root *unstructured.Unstructured) []HistoryItem {
-	return buildHistory(root, detectTool(root))
+	tool := detectTool(root)
+	if tool == "" {
+		return nil
+	}
+	return buildHistory(root, tool)
 }
 
+// detectTool returns "argocd", "fluxcd", or "" for a root that is neither.
 func detectTool(root *unstructured.Unstructured) string {
-	if root == nil {
-		return ""
-	}
-	if strings.EqualFold(root.GetKind(), "Application") || strings.Contains(root.GetAPIVersion(), "argoproj.io/") {
-		return "argocd"
-	}
-	return "fluxcd"
+	return gitops.ToolOf(root)
 }
 
 func buildSummary(root *unstructured.Unstructured, tool string) Summary {
@@ -1498,6 +1505,9 @@ func buildHistory(root *unstructured.Unstructured, tool string) []HistoryItem {
 
 func buildCapabilities(root *unstructured.Unstructured, tool string) Capabilities {
 	if tool == "argocd" {
+		if root.GetKind() != "Application" {
+			return Capabilities{UnsupportedReason: "GitOps actions are only available for Argo CD Applications."}
+		}
 		hasHistory := false
 		raw, _, _ := unstructured.NestedSlice(root.Object, "status", "history")
 		for _, item := range raw {

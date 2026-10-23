@@ -760,7 +760,7 @@ func shapeInventory(items []*work, results []configResult, opts InventoryOptions
 				// A tag resolved now may not be what runs: report what it
 				// declares, but don't call the workload fixed or not.
 				if runtime != "" && len(opts.FixedIn) > 0 && d.Runtime != "image" && w.resolvedFrom == "digest" && !w.platformAssumed {
-					d.Fix, d.FixedIn = ClassifyFix(d.Version, opts.FixedIn)
+					d.Fix, d.FixedIn = ClassifyFix(d.Runtime, d.Version, opts.FixedIn)
 					if d.Fix == FixBelow {
 						rank = 0
 					}
