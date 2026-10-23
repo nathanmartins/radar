@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 )
 
 func setClusterMatchers(t *testing.T, matchers string) {
@@ -119,10 +122,46 @@ func TestBeylaQueriesUnchangedWithoutClusterMatchers(t *testing.T) {
 // The labels describe the backend Radar was started against; a different
 // connection may label clusters differently or not at all.
 func TestSetMetricsConfigClearsClusterMatchers(t *testing.T) {
-	setClusterMatchers(t, `cluster="a"`)
-	SetMetricsConfig("http://other:9090", nil)
 	t.Cleanup(func() { SetMetricsConfig("", nil) })
+	SetMetricsConfig("http://prom:9090", map[string]string{"X-Scope-OrgID": "a"})
+	setClusterMatchers(t, `cluster="a"`)
+	SetMetricsConfig("http://other:9090", map[string]string{"X-Scope-OrgID": "a"})
 	if got := clusterMatchers(); got != "" {
 		t.Errorf("cluster matchers survived a connection change: %q", got)
+	}
+}
+
+// Local mode re-applies the same connection on startup and on a namespace
+// rescope; that is not a change of backend.
+func TestSetMetricsConfigKeepsClusterMatchersForSameConnection(t *testing.T) {
+	t.Cleanup(func() { SetMetricsConfig("", nil) })
+	SetMetricsConfig("http://prom:9090", map[string]string{"X-Scope-OrgID": "a"})
+	setClusterMatchers(t, `cluster="a"`)
+	SetMetricsConfig("http://prom:9090/", map[string]string{"X-Scope-OrgID": "a"})
+	if got := clusterMatchers(); got != `cluster="a"` {
+		t.Errorf("re-applying the same connection cleared the matchers: %q", got)
+	}
+}
+
+// Startup runs the traffic init callback before and after connecting, on the
+// same cluster; only a context switch to another cluster drops the matchers.
+func TestReinitializeKeepsClusterMatchersUntilContextChanges(t *testing.T) {
+	setClusterMatchers(t, `cluster="a"`)
+	t.Cleanup(Reset)
+	cfg := &rest.Config{Host: "https://a.example"}
+
+	for range 2 {
+		if err := ReinitializeWithConfig(fake.NewSimpleClientset(), cfg, "ctx-a"); err != nil {
+			t.Fatal(err)
+		}
+		if got := clusterMatchers(); got != `cluster="a"` {
+			t.Fatalf("matchers dropped on re-initializing the same cluster: %q", got)
+		}
+	}
+	if err := ReinitializeWithConfig(fake.NewSimpleClientset(), &rest.Config{Host: "https://b.example"}, "ctx-b"); err != nil {
+		t.Fatal(err)
+	}
+	if got := clusterMatchers(); got != "" {
+		t.Errorf("matchers survived a switch to another cluster: %q", got)
 	}
 }

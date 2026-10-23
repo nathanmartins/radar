@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -60,9 +61,15 @@ var (
 	// configuredClusterMatchers is a PromQL label-matcher fragment (e.g.
 	// `cluster="production"`) that restricts Caretta and Beyla queries to this
 	// cluster's series when one backend stores several clusters. Like the
-	// workload metrics scope, it is an operator assertion bound to the current
-	// metrics connection, so changing that connection clears it.
+	// workload metrics scope, it is an operator assertion about one Kubernetes
+	// connection and one metrics endpoint: changing either clears it.
 	configuredClusterMatchers string
+	// clusterMatchersBound records the Kubernetes connection the matchers were
+	// first initialized against. Startup initializes subsystems twice on the
+	// same connection, so only a different context or config clears them.
+	clusterMatchersBound   bool
+	clusterMatchersContext string
+	clusterMatchersConfig  *rest.Config
 	// metricsConfigGen counts changes to the settings above. Metrics-based
 	// sources (Caretta, Beyla) detect through them, so a remembered detection
 	// made under other settings is stale.
@@ -92,9 +99,13 @@ func SetMetricsHeaders(h map[string]string) {
 func SetMetricsConfig(url string, h map[string]string) {
 	metricsConfigMu.Lock()
 	defer metricsConfigMu.Unlock()
+	if configuredClusterMatchers != "" &&
+		(strings.TrimRight(url, "/") != strings.TrimRight(configuredMetricsURL, "/") || !maps.Equal(h, configuredMetricsHeaders)) {
+		log.Print("[traffic] Cluster matchers cleared: metrics endpoint or headers changed; restart with a fresh scope assertion")
+		configuredClusterMatchers = ""
+	}
 	configuredMetricsURL = url
 	configuredMetricsHeaders = copyMetricsHeaders(h)
-	configuredClusterMatchers = ""
 	metricsConfigGen++
 }
 
@@ -139,6 +150,32 @@ func SetClusterMatchers(matchers string) {
 	metricsConfigMu.Lock()
 	defer metricsConfigMu.Unlock()
 	configuredClusterMatchers = matchers
+	clusterMatchersBound = false
+	metricsConfigGen++
+}
+
+// bindClusterMatchers ties the matchers to the first Kubernetes connection
+// traffic initializes against and clears them once a later initialization
+// targets a different context or config: they describe the startup cluster.
+func bindClusterMatchers(contextName string, config *rest.Config) {
+	metricsConfigMu.Lock()
+	defer metricsConfigMu.Unlock()
+	if configuredClusterMatchers == "" {
+		return
+	}
+	if !clusterMatchersBound {
+		clusterMatchersBound = true
+		clusterMatchersContext = contextName
+		clusterMatchersConfig = config
+		return
+	}
+	if clusterMatchersContext == contextName && reflect.DeepEqual(clusterMatchersConfig, config) {
+		return
+	}
+	log.Print("[traffic] Cluster matchers cleared: Kubernetes connection changed; restart with a fresh scope assertion")
+	configuredClusterMatchers = ""
+	clusterMatchersBound = false
+	clusterMatchersConfig = nil
 	metricsConfigGen++
 }
 
@@ -175,6 +212,7 @@ func Initialize(client kubernetes.Interface) error {
 
 // InitializeWithConfig sets up the traffic manager with K8s client, config, and context name
 func InitializeWithConfig(client kubernetes.Interface, config *rest.Config, contextName string) error {
+	bindClusterMatchers(contextName, config)
 	initOnce.Do(func() {
 		manager = &Manager{
 			k8sClient:   client,

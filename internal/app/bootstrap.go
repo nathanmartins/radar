@@ -348,8 +348,6 @@ func RegisterCallbacks(cfg AppConfig, timelineStoreCfg timeline.StoreConfig) App
 	}
 
 	k8s.RegisterTrafficFuncs(traffic.Reset, func() error {
-		// The cluster labels describe the startup cluster, not the new one.
-		traffic.SetClusterMatchers("")
 		if cfg.LocalConnections != nil {
 			selection, err := resolveLocalPrometheus(cfg.LocalConnections)
 			if err != nil {
